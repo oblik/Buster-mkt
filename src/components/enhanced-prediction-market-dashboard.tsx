@@ -266,7 +266,7 @@ export function EnhancedPredictionMarketDashboard() {
   const actualShowVoteHistory = isClient && !!address;
 
   return (
-    <div className="min-h-screen flex flex-col pb-20 md:pb-0">
+    <div className="min-h-screen flex flex-col pb-20 md:pb-0 bg-gradient-to-br from-[#6A5ACD] via-[#E6E6FA] to-[#F0F8FF] dark:from-[#2D1B69] dark:via-[#1a1a2e] dark:to-[#16213e]">
       <Navbar />
       <div className="flex-grow container mx-auto p-4">
         <Tabs
@@ -387,9 +387,9 @@ export function EnhancedPredictionMarketDashboard() {
               </TabsContent>
 
               <TabsContent value="leaderboard" className="mt-6">
-                <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
-                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-                    <h3 className="text-sm font-medium text-gray-700">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden border border-gray-200 dark:border-gray-700">
+                  <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-600">
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Top Predictors
                     </h3>
                   </div>
@@ -421,8 +421,8 @@ export function EnhancedPredictionMarketDashboard() {
                       {leaderboardError}
                     </div>
                   ) : leaderboard.length > 0 ? (
-                    <div className="divide-y divide-gray-200">
-                      <div className="grid grid-cols-12 px-4 py-2 text-xs font-medium text-gray-500 bg-gray-50">
+                    <div className="divide-y divide-gray-200 dark:divide-gray-600">
+                      <div className="grid grid-cols-12 px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700">
                         <div className="col-span-1 text-center">#</div>
                         <div className="col-span-9">Predictor</div>
                         <div className="col-span-2 text-right">Winnings</div>
@@ -430,9 +430,9 @@ export function EnhancedPredictionMarketDashboard() {
                       {leaderboard.map((entry, idx) => (
                         <div
                           key={entry.fid}
-                          className={`grid grid-cols-12 px-4 py-3 hover:bg-gray-50 transition-colors ${
+                          className={`grid grid-cols-12 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
                             idx < 3
-                              ? "bg-gradient-to-r from-transparent to-blue-50"
+                              ? "bg-gradient-to-r from-transparent to-blue-50 dark:to-blue-900/20"
                               : ""
                           }`}
                         >
@@ -442,40 +442,40 @@ export function EnhancedPredictionMarketDashboard() {
                                 className={`flex items-center justify-center w-6 h-6 rounded-full
                                 ${
                                   idx === 0
-                                    ? "bg-yellow-100 text-yellow-800"
+                                    ? "bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100"
                                     : idx === 1
-                                    ? "bg-gray-100 text-gray-800"
-                                    : "bg-amber-100 text-amber-800"
+                                    ? "bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                                    : "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-100"
                                 }
                                 text-xs font-bold`}
                               >
                                 {idx + 1}
                               </div>
                             ) : (
-                              <span className="text-gray-500 text-sm">
+                              <span className="text-gray-500 dark:text-gray-400 text-sm">
                                 {idx + 1}
                               </span>
                             )}
                           </div>
                           <div className="col-span-9">
                             <div className="flex items-center">
-                              <div className="bg-purple-100 text-purple-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">
+                              <div className="bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-100 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mr-3">
                                 {entry.username
                                   ?.substring(0, 1)
                                   .toUpperCase() || "?"}
                               </div>
                               <div>
-                                <div className="text-sm font-medium text-gray-900">
+                                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                                   {entry.username || `FID: ${entry.fid}`}
                                 </div>
-                                <div className="text-xs text-gray-500">
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
                                   FID: {entry.fid}
                                 </div>
                               </div>
                             </div>
                           </div>
                           <div className="col-span-2 text-right">
-                            <div className="text-sm font-medium text-gray-900">
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                               {entry.winnings.toLocaleString()} $Buster
                             </div>
                           </div>

@@ -37,7 +37,9 @@ export default function Home() {
       fallback={
         <div className="flex min-h-screen flex-col items-center justify-center">
           {/* You can put a more sophisticated loading skeleton here if you like */}
-          <p className="text-lg text-gray-600">Loading Dashboard...</p>
+          <p className="text-lg text-gray-600 dark:text-gray-300">
+            Loading Dashboard...
+          </p>
         </div>
       }
     >

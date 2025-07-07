@@ -4,6 +4,7 @@ import { useEffect, useState, Fragment } from "react";
 import { sdk } from "@farcaster/frame-sdk";
 import Image from "next/image";
 import { useConnect, useAccount, useDisconnect, Connector } from "wagmi";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function Navbar() {
   const [username, setUsername] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export function Navbar() {
   return (
     <>
       {/* Desktop View */}
-      <div className="hidden md:flex justify-between items-center mb-6 px-4 py-3 bg-gradient-to-r from-[#7A42B9] to-gray-100 rounded-lg shadow-sm">
+      <div className="hidden md:flex justify-between items-center mb-6 px-4 py-3 bg-gradient-to-r from-[#7A42B9] to-gray-100 dark:from-[#5A2C8A] dark:to-gray-800 rounded-lg shadow-sm">
         <div className="flex items-center gap-3">
           {pfpUrl && !pfpError ? (
             <Image
@@ -135,19 +136,22 @@ export function Navbar() {
               onError={() => setPfpError(true)}
             />
           ) : (
-            <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-sm font-medium">
+            <div className="w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 text-sm font-medium">
               {username?.charAt(0)?.toUpperCase() || "P"}
             </div>
           )}
-          <div className="text-xl font-bold text-gray-800">
+          <div className="text-xl font-bold text-gray-800 dark:text-gray-200">
             Welcome {username || "Player"}
           </div>
         </div>
-        <WalletButton />
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <WalletButton />
+        </div>
       </div>
 
       {/* Mobile View */}
-      <div className="md:hidden flex justify-between items-center mb-4 px-3 py-2 bg-gradient-to-r from-[#7A42B9] to-gray-100 rounded-lg shadow-sm">
+      <div className="md:hidden flex justify-between items-center mb-4 px-3 py-2 bg-gradient-to-r from-[#7A42B9] to-gray-100 dark:from-[#5A2C8A] dark:to-gray-800 rounded-lg shadow-sm">
         <div className="flex items-center gap-2">
           {pfpUrl && !pfpError ? (
             <Image
@@ -159,15 +163,18 @@ export function Navbar() {
               onError={() => setPfpError(true)}
             />
           ) : (
-            <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xs font-medium">
+            <div className="w-8 h-8 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 text-xs font-medium">
               {username?.charAt(0)?.toUpperCase() || "P"}
             </div>
           )}
-          <div className="text-sm font-medium text-gray-800">
+          <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
             Welcome {username || "Player"}
           </div>
         </div>
-        <WalletButton />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <WalletButton />
+        </div>
       </div>
     </>
   );

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCommentCounts } from "@/lib/supabase-comments";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,21 +10,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ counts: {} });
     }
 
-    // Simple in-memory count (in production, this would query your database)
-    const commentCounts: Record<string, number> = {};
+    const counts = await getCommentCounts(marketIds);
 
-    // For demo purposes, add some sample counts
-    marketIds.forEach((marketId) => {
-      // Simulate different comment counts for different markets
-      const randomCount = Math.floor(Math.random() * 10);
-      commentCounts[marketId] = marketId === "0" ? 2 : randomCount; // Market 0 has our sample comments
-    });
-
-    return NextResponse.json({ counts: commentCounts });
+    return NextResponse.json({ counts });
   } catch (error) {
     console.error("Error fetching comment counts:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Failed to fetch comment counts" },
       { status: 500 }
     );
   }

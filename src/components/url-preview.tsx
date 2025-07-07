@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { ExternalLink, Globe } from "lucide-react";
 
@@ -114,28 +115,30 @@ export function UrlPreview({ url, className }: UrlPreviewProps) {
             ) : metadata ? (
               <div>
                 {metadata.image && (
-                  <img
+                  <Image
                     src={metadata.image}
                     alt="Preview"
+                    width={400}
+                    height={128}
                     className="w-full h-32 object-cover rounded mb-2"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
                     }}
                   />
                 )}
-                <h4 className="font-medium text-sm text-gray-900 mb-1">
+                <h4 className="font-medium text-sm text-gray-900 dark:text-gray-100 mb-1">
                   {metadata.title || getDomain(url)}
                 </h4>
-                <p className="text-xs text-gray-600 mb-2">
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                   {metadata.description || "External reference for this market"}
                 </p>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
                       {metadata.domain}
                     </span>
                     {metadata.trusted && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-green-100 text-green-800">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
                         Verified
                       </span>
                     )}
@@ -144,14 +147,14 @@ export function UrlPreview({ url, className }: UrlPreviewProps) {
                     href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
                   >
                     Open <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-500 dark:text-gray-400">
                 Unable to load preview
               </div>
             )}
