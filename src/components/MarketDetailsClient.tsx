@@ -18,7 +18,7 @@ import { MarketSharesDisplay } from "@/components/market-shares-display";
 import { UrlPreview } from "./url-preview";
 import { MarketContext } from "./market-context";
 import { CommentSystem } from "./CommentSystem";
-import MarketChart from "./market-chart";
+import { MarketChart } from "./market-chart";
 
 interface Market {
   question: string;
