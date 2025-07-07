@@ -175,7 +175,10 @@ export async function GET(request: NextRequest) {
     `--- Market Image API: Received request for marketId: ${marketId} ---`
   );
   console.log("Market Image API: Full URL:", request.url);
-  console.log("Market Image API: All search params:", Object.fromEntries(searchParams.entries()));
+  console.log(
+    "Market Image API: All search params:",
+    Object.fromEntries(searchParams.entries())
+  );
 
   // More robust validation
   if (!marketId) {
@@ -186,9 +189,15 @@ export async function GET(request: NextRequest) {
   // Clean the marketId string and validate
   const cleanMarketId = marketId.trim();
   const marketIdNumber = Number(cleanMarketId);
-  
-  if (isNaN(marketIdNumber) || marketIdNumber < 0 || !Number.isInteger(marketIdNumber)) {
-    console.error(`Market Image API: Invalid marketId: "${marketId}" (cleaned: "${cleanMarketId}")`);
+
+  if (
+    isNaN(marketIdNumber) ||
+    marketIdNumber < 0 ||
+    !Number.isInteger(marketIdNumber)
+  ) {
+    console.error(
+      `Market Image API: Invalid marketId: "${marketId}" (cleaned: "${cleanMarketId}")`
+    );
     return new NextResponse("Invalid market ID format", { status: 400 });
   }
 
@@ -460,7 +469,13 @@ export async function GET(request: NextRequest) {
               border: `1px solid ${colors.border}`,
             }}
           >
-            <div style={{ textAlign: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                textAlign: "center",
+              }}
+            >
               <div
                 style={{
                   fontSize: "14px",
@@ -481,7 +496,13 @@ export async function GET(request: NextRequest) {
               </div>
             </div>
             {market.resolved && (
-              <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  textAlign: "center",
+                }}
+              >
                 <div
                   style={{
                     fontSize: "14px",
