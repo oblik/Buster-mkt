@@ -279,6 +279,7 @@ export async function GET(request: NextRequest) {
           </div>
           <div
             style={{
+              display: "flex",
               fontSize: "16px",
               opacity: 0.9,
             }}
@@ -303,6 +304,7 @@ export async function GET(request: NextRequest) {
           {/* Question - with dynamic font size */}
           <div
             style={{
+              display: "flex",
               fontSize: `${questionFontSize}px`,
               fontWeight: "bold",
               color: colors.text.primary,
@@ -388,6 +390,7 @@ export async function GET(request: NextRequest) {
               </div>
               <div
                 style={{
+                  display: "flex",
                   width: "100%",
                   height: "12px",
                   backgroundColor: "#e5e7eb",
@@ -397,6 +400,7 @@ export async function GET(request: NextRequest) {
               >
                 <div
                   style={{
+                    display: "flex",
                     width: `${aPercentage}%`,
                     height: "100%",
                     background: colors.gradient.primary,
@@ -437,6 +441,7 @@ export async function GET(request: NextRequest) {
               </div>
               <div
                 style={{
+                  display: "flex",
                   width: "100%",
                   height: "12px",
                   backgroundColor: "#e5e7eb",
@@ -446,6 +451,7 @@ export async function GET(request: NextRequest) {
               >
                 <div
                   style={{
+                    display: "flex",
                     width: `${bPercentage}%`,
                     height: "100%",
                     backgroundColor: colors.secondary,
@@ -478,6 +484,7 @@ export async function GET(request: NextRequest) {
             >
               <div
                 style={{
+                  display: "flex",
                   fontSize: "14px",
                   color: colors.text.secondary,
                   marginBottom: "4px",
@@ -487,6 +494,7 @@ export async function GET(request: NextRequest) {
               </div>
               <div
                 style={{
+                  display: "flex",
                   fontSize: "18px",
                   fontWeight: "bold",
                   color: colors.text.primary,
@@ -505,6 +513,7 @@ export async function GET(request: NextRequest) {
               >
                 <div
                   style={{
+                    display: "flex",
                     fontSize: "14px",
                     color: colors.text.secondary,
                     marginBottom: "4px",
@@ -514,6 +523,7 @@ export async function GET(request: NextRequest) {
                 </div>
                 <div
                   style={{
+                    display: "flex",
                     fontSize: "18px",
                     fontWeight: "bold",
                     color: colors.success,
