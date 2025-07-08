@@ -15,10 +15,10 @@ import MarketTime from "@/components/market-time";
 //eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { MarketSharesDisplay } from "@/components/market-shares-display";
 
-import { UrlPreview } from "./url-preview";
-import { MarketContext } from "./market-context";
-import { CommentSystem } from "./CommentSystem";
-import { MarketChart } from "./market-chart";
+import { UrlPreview } from "@/components/url-preview";
+import { MarketContext } from "@/components/market-context";
+import { MarketChart } from "@/components/market-chart";
+// import { CommentSystem } from "@/components/CommentSystem";
 
 interface Market {
   question: string;
@@ -252,7 +252,7 @@ export function MarketDetailsClient({
 
           {/* Comment System */}
           <div className="mt-8">
-            <CommentSystem marketId={marketId} />
+            {/* <CommentSystem marketId={marketId} /> */}
           </div>
         </div>
       </main>
