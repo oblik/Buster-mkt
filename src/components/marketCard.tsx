@@ -140,7 +140,7 @@ export function MarketCard({ index, market }: MarketCardProps) {
   const handleShare = async () => {
     try {
       await sdk.actions.composeCast({
-        text: `Check out this market on Buster Market: ${
+        text: `Check out this market on Policast: ${
           marketData?.question || `Market ${index}`
         }`,
         embeds: [marketPageUrl],
