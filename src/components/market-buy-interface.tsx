@@ -9,6 +9,7 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
   useConnectorClient,
+  useSendCalls,
   type BaseError,
 } from "wagmi";
 import {
@@ -92,6 +93,11 @@ export function MarketBuyInterface({
     null
   );
   const [batchingFailed, setBatchingFailed] = useState(false);
+  const {
+    sendCalls,
+    isPending: isSendingCalls,
+    error: sendCallsError,
+  } = useSendCalls();
 
   // Wagmi hooks for reading token data
   const { data: tokenSymbolData, error: tokenSymbolError } = useReadContract({
@@ -141,65 +147,6 @@ export function MarketBuyInterface({
     },
   });
   const userAllowance = (allowanceData as bigint | undefined) ?? 0n;
-
-  // EIP-5792 batch transaction function
-  const sendBatchTransaction = async (amountInUnits: bigint) => {
-    if (!connectorClient || !accountAddress) {
-      throw new Error("Wallet not connected");
-    }
-
-    // Prepare approve call data
-    const approveCallData = encodeFunctionData({
-      abi: tokenAbi,
-      functionName: "approve",
-      args: [contractAddress, amountInUnits], // Only approve exact amount needed
-    });
-
-    // Prepare buy shares call data
-    const buySharesCallData = encodeFunctionData({
-      abi: contractAbi,
-      functionName: "buyShares",
-      args: [BigInt(marketId), selectedOption === "A", amountInUnits],
-    });
-
-    // Send batch transaction using EIP-5792
-    const calls = [
-      {
-        to: tokenAddress,
-        data: approveCallData,
-        value: "0x0",
-      },
-      {
-        to: contractAddress,
-        data: buySharesCallData,
-        value: "0x0",
-      },
-    ];
-
-    try {
-      const batchId = await connectorClient.request({
-        method: "wallet_sendCalls" as any,
-        params: [
-          {
-            version: "1.0",
-            chainId: `0x${connectorClient.chain?.id.toString(16)}`,
-            from: accountAddress,
-            calls,
-            capabilities: {
-              atomicBatch: {
-                supported: true,
-              },
-            },
-          },
-        ],
-      });
-
-      return batchId;
-    } catch (error) {
-      console.error("Batch transaction failed:", error);
-      throw error;
-    }
-  };
 
   useEffect(() => {
     if (
@@ -275,7 +222,6 @@ export function MarketBuyInterface({
       setAmount("");
       setError(null);
       setLastProcessedHash(null);
-      setBatchingFailed(false); // Reset batching state
       setIsVisible(true);
     }, 200);
   }, [
@@ -413,58 +359,58 @@ export function MarketBuyInterface({
     try {
       const amountInUnits = toUnits(amount, tokenDecimals);
 
-      // Optimistically try batch transaction if it hasn't failed before
-      if (!batchingFailed) {
-        try {
-          const batchId = await sendBatchTransaction(amountInUnits);
-          console.log("Batch transaction submitted:", batchId);
+      const calls = [
+        {
+          to: tokenAddress,
+          data: encodeFunctionData({
+            abi: tokenAbi,
+            functionName: "approve",
+            args: [contractAddress, amountInUnits],
+          }),
+          value: 0n,
+        },
+        {
+          to: contractAddress,
+          data: encodeFunctionData({
+            abi: contractAbi,
+            functionName: "buyShares",
+            args: [BigInt(marketId), selectedOption === "A", amountInUnits],
+          }),
+          value: 0n,
+        },
+      ];
 
-          toast({
-            title: "Batch Transaction Submitted",
-            description: "Approve + Buy submitted in single transaction",
-            duration: 3000,
-          });
-
-          // With EIP-5792, we don't get a standard hash immediately
-          // The wallet handles the batch atomically. We can refetch and go to success.
-          refetchBalance();
-          setBuyingStep("purchaseSuccess");
-          setIsProcessing(false);
-          return; // Exit after successful batch
-        } catch (batchError: any) {
-          console.error("Batch transaction failed:", batchError);
-          // If user rejected, show toast and stop.
-          if (
-            batchError.message &&
-            batchError.message.includes("user rejected")
-          ) {
+      sendCalls(
+        { calls },
+        {
+          onSuccess: (id) => {
+            console.log("Batch transaction successful with id:", id);
             toast({
-              title: "Transaction Rejected",
-              description: "You rejected the transaction in your wallet.",
-              variant: "destructive",
+              title: "Batch Transaction Submitted",
+              description: "Approve + Buy submitted in a single transaction.",
             });
+            refetchBalance();
+            setBuyingStep("purchaseSuccess");
             setIsProcessing(false);
-            return;
-          }
-          // Otherwise, assume batching is not supported and fall back.
-          console.log("Falling back to sequential transactions.");
-          setBatchingFailed(true); // Mark batching as failed to prevent retries
+          },
+          onError: (err) => {
+            console.error("Batch transaction failed, falling back:", err);
+            // Fallback to sequential transactions
+            const needsApproval = amountInUnits > userAllowance;
+            if (needsApproval) {
+              setBuyingStep("allowance");
+            } else {
+              writeContractAsync({
+                address: contractAddress,
+                abi: contractAbi,
+                functionName: "buyShares",
+                args: [BigInt(marketId), selectedOption === "A", amountInUnits],
+              });
+            }
+            setIsProcessing(false);
+          },
         }
-      }
-
-      // Fallback logic: sequential approval and purchase
-      const needsApproval = amountInUnits > userAllowance;
-      if (needsApproval) {
-        setBuyingStep("allowance");
-      } else {
-        // If no approval is needed, proceed directly to purchase
-        await writeContractAsync({
-          address: contractAddress,
-          abi: contractAbi,
-          functionName: "buyShares",
-          args: [BigInt(marketId), selectedOption === "A", amountInUnits],
-        });
-      }
+      );
     } catch (error: unknown) {
       console.error("Purchase error:", error);
       let errorMessage = "Failed to process purchase. Check your wallet.";
@@ -752,54 +698,41 @@ export function MarketBuyInterface({
             ) : buyingStep === "confirm" ? (
               <div className="flex flex-col border-2 border-gray-200 rounded-lg p-4">
                 <h3 className="text-lg font-bold mb-2">
-                  {batchingFailed
-                    ? "Confirm Purchase"
-                    : "Confirm Batch Purchase"}
+                  {"Confirm Batch Purchase"}
                 </h3>
                 <p className="mb-4 text-sm">
-                  {!batchingFailed ? (
-                    <>
-                      <span className="inline-block bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium mb-2">
-                        🚀 EIP-5792 Batch Transaction
-                      </span>
-                      <br />
-                      Approve {amount} {tokenSymbol} + Buy{" "}
-                      <span className="font-bold">
-                        {amount}{" "}
-                        {selectedOption === "A"
-                          ? market.optionA
-                          : market.optionB}
-                      </span>{" "}
-                      shares in one atomic transaction.
-                    </>
-                  ) : (
-                    <>
-                      Buy{" "}
-                      <span className="font-bold">
-                        {amount}{" "}
-                        {selectedOption === "A"
-                          ? market.optionA
-                          : market.optionB}
-                      </span>{" "}
-                      shares for {amount} {tokenSymbol}.
-                    </>
-                  )}
+                  <>
+                    <span className="inline-block bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium mb-2">
+                      🚀 EIP-5792 Batch Transaction
+                    </span>
+                    <br />
+                    Approve {amount} {tokenSymbol} + Buy{" "}
+                    <span className="font-bold">
+                      {amount}{" "}
+                      {selectedOption === "A" ? market.optionA : market.optionB}
+                    </span>{" "}
+                    shares in one atomic transaction.
+                  </>
                 </p>
                 <div className="flex justify-end gap-2">
                   <Button
                     onClick={handleConfirm}
                     className="min-w-[120px]"
-                    disabled={isProcessing || isWritePending || isConfirmingTx}
+                    disabled={
+                      isProcessing ||
+                      isWritePending ||
+                      isConfirmingTx ||
+                      isSendingCalls
+                    }
                   >
-                    {isProcessing || isWritePending || isConfirmingTx ? (
+                    {isProcessing ||
+                    isWritePending ||
+                    isConfirmingTx ||
+                    isSendingCalls ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {batchingFailed
-                          ? "Confirming..."
-                          : "Processing Batch..."}
+                        {"Processing Batch..."}
                       </>
-                    ) : batchingFailed ? (
-                      "Confirm"
                     ) : (
                       "Execute Batch"
                     )}
@@ -808,7 +741,12 @@ export function MarketBuyInterface({
                     onClick={handleCancel}
                     variant="outline"
                     className="min-w-[120px]"
-                    disabled={isProcessing || isWritePending || isConfirmingTx}
+                    disabled={
+                      isProcessing ||
+                      isWritePending ||
+                      isConfirmingTx ||
+                      isSendingCalls
+                    }
                   >
                     Cancel
                   </Button>
