@@ -1,159 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  publicClient,
-  contractAddress,
-  contractAbi,
-  tokenAddress as defaultTokenAddress,
-  tokenAbi as defaultTokenAbi,
-} from "@/constants/contract";
 import satori from "satori";
 import sharp from "sharp";
 import { promises as fs } from "fs";
 import path from "node:path";
-import { type Address } from "viem";
-
-interface Vote {
-  marketId: number;
-  isOptionA: boolean;
-  amount: bigint;
-  timestamp: bigint;
-}
-
-interface MarketInfo {
-  question: string;
-  optionA: string;
-  optionB: string;
-  outcome: number;
-  resolved: boolean;
-}
-
-interface UserStatsData {
-  totalVotes: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-  totalInvested: bigint;
-  netWinnings: bigint;
-  username?: string;
-  pfpUrl?: string;
-  fid?: number;
-}
-
-async function fetchUserStats(address: Address): Promise<UserStatsData> {
-  try {
-    // Get betting token info
-    const bettingTokenAddr = (await publicClient.readContract({
-      address: contractAddress,
-      abi: contractAbi,
-      functionName: "bettingToken",
-    })) as Address;
-
-    const tokenAddress = bettingTokenAddr || defaultTokenAddress;
-
-    // Get total winnings
-    const totalWinnings = (await publicClient.readContract({
-      address: contractAddress,
-      abi: contractAbi,
-      functionName: "totalWinnings",
-      args: [address],
-    })) as bigint;
-
-    // Get vote count
-    const voteCount = (await publicClient.readContract({
-      address: contractAddress,
-      abi: contractAbi,
-      functionName: "getVoteHistoryCount",
-      args: [address],
-    })) as bigint;
-
-    if (voteCount === 0n) {
-      return {
-        totalVotes: 0,
-        wins: 0,
-        losses: 0,
-        winRate: 0,
-        totalInvested: 0n,
-        netWinnings: totalWinnings,
-      };
-    }
-
-    // Fetch all votes
-    const allVotes: Vote[] = [];
-    for (let i = 0; i < voteCount; i += 50) {
-      const votes = (await publicClient.readContract({
-        address: contractAddress,
-        abi: contractAbi,
-        functionName: "getVoteHistory",
-        args: [address, BigInt(i), 50n],
-      })) as readonly {
-        marketId: bigint;
-        isOptionA: boolean;
-        amount: bigint;
-        timestamp: bigint;
-      }[];
-      allVotes.push(
-        ...votes.map((v) => ({
-          ...v,
-          marketId: Number(v.marketId),
-        }))
-      );
-    }
-
-    // Get market info for all voted markets
-    const marketIds = [...new Set(allVotes.map((v) => v.marketId))];
-    const marketInfosData = await publicClient.readContract({
-      address: contractAddress,
-      abi: contractAbi,
-      functionName: "getMarketInfoBatch",
-      args: [marketIds.map(BigInt)],
-    });
-
-    const marketInfos: Record<number, MarketInfo> = {};
-    marketIds.forEach((id, i) => {
-      marketInfos[id] = {
-        question: marketInfosData[0][i],
-        optionA: marketInfosData[1][i],
-        optionB: marketInfosData[2][i],
-        outcome: marketInfosData[4][i],
-        resolved: marketInfosData[7][i],
-      };
-    });
-
-    // Calculate wins and losses
-    let wins = 0;
-    let losses = 0;
-    const totalInvested = allVotes.reduce((acc, v) => acc + v.amount, 0n);
-
-    allVotes.forEach((vote) => {
-      const market = marketInfos[vote.marketId];
-      if (market && market.resolved) {
-        const won =
-          (vote.isOptionA && market.outcome === 1) ||
-          (!vote.isOptionA && market.outcome === 2);
-        if (won) {
-          wins++;
-        } else if (market.outcome !== 0 && market.outcome !== 3) {
-          losses++;
-        }
-      }
-    });
-
-    const totalVotes = wins + losses;
-    const winRate = totalVotes > 0 ? (wins / totalVotes) * 100 : 0;
-
-    return {
-      totalVotes,
-      wins,
-      losses,
-      winRate,
-      totalInvested,
-      netWinnings: totalWinnings,
-    };
-  } catch (error) {
-    console.error("Failed to fetch user stats:", error);
-    throw error;
-  }
-}
 
 const regularFontPath = path.join(
   process.cwd(),
@@ -175,35 +24,17 @@ const boldFontPath = path.join(
 const regularFontDataPromise = fs.readFile(regularFontPath);
 const boldFontDataPromise = fs.readFile(boldFontPath);
 
-const colors = {
-  background: "#ffffff",
-  cardBg: "#f8fafc",
-  primary: "#2563eb",
-  secondary: "#7c3aed",
-  success: "#059669",
-  danger: "#dc2626",
-  text: {
-    primary: "#111827",
-    secondary: "#4b5563",
-    light: "#9ca3af",
-  },
-  border: "#e5e7eb",
-  gradient: {
-    header: "linear-gradient(90deg, #1e40af 0%, #7e22ce 100%)",
-  },
-};
-
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const address = searchParams.get("address");
-  const username = searchParams.get("username");
-  const pfpUrl = searchParams.get("pfpUrl");
-  const fid = searchParams.get("fid");
+  const username = searchParams.get("username") || "Anonymous Trader";
+  const fid = searchParams.get("fid") || "239396";
 
-  console.log(`User Stats Image API: Received request for address: ${address}`);
+  console.log(
+    `Simple User Stats Image API: Received request for address: ${address}`
+  );
 
   if (!address) {
-    console.error("User Stats Image API: No address parameter provided");
     return new NextResponse("Missing address parameter", { status: 400 });
   }
 
@@ -213,16 +44,6 @@ export async function GET(request: NextRequest) {
       boldFontDataPromise,
     ]);
 
-    const stats = await fetchUserStats(address as Address);
-
-    // Format amounts for display (assuming 18 decimals)
-    const formatAmount = (amount: bigint) => {
-      return (Number(amount) / 10 ** 18).toLocaleString(undefined, {
-        maximumFractionDigits: 2,
-      });
-    };
-
-    const displayUsername = username || "Anonymous Trader";
     const displayAddress = `${address.slice(0, 6)}...${address.slice(-4)}`;
 
     const jsx = (
@@ -232,7 +53,7 @@ export async function GET(request: NextRequest) {
           flexDirection: "column",
           width: "900px",
           height: "600px",
-          backgroundColor: colors.background,
+          backgroundColor: "#ffffff",
           padding: "40px",
           fontFamily: "Inter",
         }}
@@ -245,60 +66,25 @@ export async function GET(request: NextRequest) {
             justifyContent: "space-between",
             marginBottom: "40px",
             padding: "24px",
-            background: colors.gradient.header,
+            background: "linear-gradient(90deg, #1e40af 0%, #7e22ce 100%)",
             borderRadius: "16px",
             color: "white",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-            {pfpUrl && (
-              <div
-                style={{
-                  display: "flex",
-                  width: "50px",
-                  height: "50px",
-                  borderRadius: "50%",
-                  overflow: "hidden",
-                  border: "3px solid rgba(255, 255, 255, 0.3)",
-                }}
-              >
-                <img
-                  src={pfpUrl}
-                  alt="Profile"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                  }}
-                />
-              </div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "28px",
-                  fontWeight: "bold",
-                }}
-              >
-                {displayUsername}
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "16px",
-                  opacity: 0.8,
-                  fontFamily: "monospace",
-                }}
-              >
-                {displayAddress}
-              </div>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <div
+              style={{ display: "flex", fontSize: "28px", fontWeight: "bold" }}
+            >
+              {username}
+            </div>
+            <div style={{ display: "flex", fontSize: "16px", opacity: 0.8 }}>
+              {displayAddress}
             </div>
           </div>
           <div
             style={{ display: "flex", fontSize: "20px", fontWeight: "bold" }}
           >
-            🎯 Policast Stats
+            🎯 Buster Stats
           </div>
         </div>
 
@@ -317,10 +103,10 @@ export async function GET(request: NextRequest) {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: colors.cardBg,
+              backgroundColor: "#f8fafc",
               borderRadius: "20px",
               padding: "32px",
-              border: `2px solid ${colors.border}`,
+              border: "2px solid #e5e7eb",
               flex: "0 0 280px",
             }}
           >
@@ -329,18 +115,14 @@ export async function GET(request: NextRequest) {
                 display: "flex",
                 fontSize: "48px",
                 fontWeight: "bold",
-                color: colors.success,
+                color: "#059669",
                 marginBottom: "8px",
               }}
             >
-              {stats.winRate.toFixed(1)}%
+              65.4%
             </div>
             <div
-              style={{
-                display: "flex",
-                fontSize: "16px",
-                color: colors.text.secondary,
-              }}
+              style={{ display: "flex", fontSize: "16px", color: "#6b7280" }}
             >
               Win Rate
             </div>
@@ -375,7 +157,7 @@ export async function GET(request: NextRequest) {
                     style={{
                       display: "flex",
                       fontSize: "14px",
-                      color: colors.text.secondary,
+                      color: "#6b7280",
                       marginBottom: "4px",
                     }}
                   >
@@ -386,10 +168,10 @@ export async function GET(request: NextRequest) {
                       display: "flex",
                       fontSize: "28px",
                       fontWeight: "bold",
-                      color: colors.success,
+                      color: "#059669",
                     }}
                   >
-                    {stats.wins}
+                    23
                   </div>
                 </div>
               </div>
@@ -412,7 +194,7 @@ export async function GET(request: NextRequest) {
                     style={{
                       display: "flex",
                       fontSize: "14px",
-                      color: colors.text.secondary,
+                      color: "#6b7280",
                       marginBottom: "4px",
                     }}
                   >
@@ -423,10 +205,10 @@ export async function GET(request: NextRequest) {
                       display: "flex",
                       fontSize: "28px",
                       fontWeight: "bold",
-                      color: colors.danger,
+                      color: "#dc2626",
                     }}
                   >
-                    {stats.losses}
+                    12
                   </div>
                 </div>
               </div>
@@ -450,7 +232,7 @@ export async function GET(request: NextRequest) {
                   style={{
                     display: "flex",
                     fontSize: "14px",
-                    color: colors.text.secondary,
+                    color: "#6b7280",
                     marginBottom: "4px",
                   }}
                 >
@@ -461,10 +243,10 @@ export async function GET(request: NextRequest) {
                     display: "flex",
                     fontSize: "24px",
                     fontWeight: "bold",
-                    color: colors.primary,
+                    color: "#2563eb",
                   }}
                 >
-                  {formatAmount(stats.totalInvested)} BSTR
+                  1,234.56 BSTR
                 </div>
               </div>
             </div>
@@ -475,24 +257,19 @@ export async function GET(request: NextRequest) {
                 display: "flex",
                 alignItems: "center",
                 gap: "16px",
-                backgroundColor:
-                  Number(stats.netWinnings) >= 0 ? "#dcfce7" : "#fecaca",
+                backgroundColor: "#dcfce7",
                 borderRadius: "16px",
                 padding: "24px",
-                border: `2px solid ${
-                  Number(stats.netWinnings) >= 0 ? "#bbf7d0" : "#fca5a5"
-                }`,
+                border: "2px solid #bbf7d0",
               }}
             >
-              <span style={{ fontSize: "32px" }}>
-                {Number(stats.netWinnings) >= 0 ? "📈" : "📉"}
-              </span>
+              <span style={{ fontSize: "32px" }}>📈</span>
               <div style={{ display: "flex", flexDirection: "column" }}>
                 <div
                   style={{
                     display: "flex",
                     fontSize: "14px",
-                    color: colors.text.secondary,
+                    color: "#6b7280",
                     marginBottom: "4px",
                   }}
                 >
@@ -503,13 +280,10 @@ export async function GET(request: NextRequest) {
                     display: "flex",
                     fontSize: "24px",
                     fontWeight: "bold",
-                    color:
-                      Number(stats.netWinnings) >= 0
-                        ? colors.success
-                        : colors.danger,
+                    color: "#059669",
                   }}
                 >
-                  {formatAmount(stats.netWinnings)} BSTR
+                  +456.78 BSTR
                 </div>
               </div>
             </div>
@@ -526,7 +300,7 @@ export async function GET(request: NextRequest) {
             padding: "24px",
             backgroundColor: "rgba(37, 99, 235, 0.05)",
             borderRadius: "16px",
-            border: `1px solid ${colors.border}`,
+            border: "1px solid #e5e7eb",
           }}
         >
           <div
@@ -541,18 +315,14 @@ export async function GET(request: NextRequest) {
                 display: "flex",
                 fontSize: "24px",
                 fontWeight: "bold",
-                color: colors.primary,
+                color: "#2563eb",
                 marginBottom: "4px",
               }}
             >
-              {stats.totalVotes}
+              35
             </div>
             <div
-              style={{
-                display: "flex",
-                fontSize: "14px",
-                color: colors.text.secondary,
-              }}
+              style={{ display: "flex", fontSize: "14px", color: "#6b7280" }}
             >
               Total Bets
             </div>
@@ -570,59 +340,43 @@ export async function GET(request: NextRequest) {
                 display: "flex",
                 fontSize: "24px",
                 fontWeight: "bold",
-                color: colors.secondary,
+                color: "#7c3aed",
                 marginBottom: "4px",
               }}
             >
-              {stats.totalVotes > 0
-                ? (
-                    Number(stats.totalInvested) /
-                    stats.totalVotes /
-                    10 ** 18
-                  ).toFixed(0)
-                : 0}
+              35
             </div>
             <div
-              style={{
-                display: "flex",
-                fontSize: "14px",
-                color: colors.text.secondary,
-              }}
+              style={{ display: "flex", fontSize: "14px", color: "#6b7280" }}
             >
-              Avg Bet Size
+              Avg Bet
             </div>
           </div>
 
-          {fid && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
             <div
               style={{
                 display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
+                fontSize: "18px",
+                fontWeight: "bold",
+                color: "#2563eb",
+                marginBottom: "4px",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "18px",
-                  fontWeight: "bold",
-                  color: colors.primary,
-                  marginBottom: "4px",
-                }}
-              >
-                FID: {fid}
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "14px",
-                  color: colors.text.secondary,
-                }}
-              >
-                Farcaster ID
-              </div>
+              FID: {fid}
             </div>
-          )}
+            <div
+              style={{ display: "flex", fontSize: "14px", color: "#6b7280" }}
+            >
+              Farcaster ID
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -649,7 +403,7 @@ export async function GET(request: NextRequest) {
     const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
 
     console.log(
-      `User Stats Image API: Successfully generated image for address ${address}`
+      `Simple User Stats Image API: Successfully generated image for address ${address}`
     );
 
     return new NextResponse(new Uint8Array(pngBuffer), {
@@ -660,7 +414,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error(
-      `User Stats Image API: Error generating image for address ${address}:`,
+      `Simple User Stats Image API: Error generating image for address ${address}:`,
       error
     );
     return new NextResponse("Error generating image", { status: 500 });

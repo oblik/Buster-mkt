@@ -68,16 +68,16 @@ export async function generateMetadata(
     const fcFrameKey = "fc:frame" as string;
 
     return {
-      title: `${displayName}'s Stats - Buster Markets`,
-      description: `Check out ${displayName}'s prediction market performance on Buster Markets - ${shortAddress}`,
+      title: `${displayName}'s Stats - Policast`,
+      description: `Check out ${displayName}'s prediction market performance on Policast - ${shortAddress}`,
       other: {
         ...otherParentData,
         [fcFrameKey]: JSON.stringify(miniAppEmbed),
       },
       metadataBase: new URL(baseUrl),
       openGraph: {
-        title: `${displayName}'s Stats - Buster Markets`,
-        description: `Check out ${displayName}'s prediction market performance on Buster Markets`,
+        title: `${displayName}'s Stats - Policast`,
+        description: `Check out ${displayName}'s prediction market performance on Policast`,
         images: [
           {
             url: imageUrl,
@@ -91,8 +91,8 @@ export async function generateMetadata(
       },
       twitter: {
         card: "summary_large_image",
-        title: `${displayName}'s Stats - Buster Markets`,
-        description: `Check out ${displayName}'s prediction market performance on Buster Markets`,
+        title: `${displayName}'s Stats - Policast`,
+        description: `Check out ${displayName}'s prediction market performance on Policast`,
         images: [imageUrl],
       },
     };

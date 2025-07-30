@@ -16,7 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useFarcasterUser } from "@/hooks/useFarcasterUser";
-import { Share2, Copy, ExternalLink } from "lucide-react";
+import { Share2 } from "lucide-react";
+import { sdk } from "@farcaster/frame-sdk";
 
 interface Vote {
   marketId: number;
@@ -272,37 +273,16 @@ export function UserStats() {
 
     const shareUrl = `${baseUrl}/profile/${accountAddress}?${params.toString()}`;
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `${
-            farcasterUser?.username ? `@${farcasterUser.username}` : "My"
-          }'s Stats - Buster Markets`,
-          text: `Check out my prediction market performance on Buster Markets!`,
-          url: shareUrl,
-        });
-      } catch (error) {
-        console.log("Error sharing:", error);
-        // Fallback to copy to clipboard
-        copyToClipboard(shareUrl);
-      }
-    } else {
-      copyToClipboard(shareUrl);
-    }
-  };
-
-  const copyToClipboard = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      toast({
-        title: "Link Copied!",
-        description: "Share link has been copied to your clipboard.",
+      await sdk.actions.composeCast({
+        text: `Check out my prediction market stats on Policast! 🎯`,
+        embeds: [shareUrl],
       });
     } catch (error) {
-      console.error("Failed to copy to clipboard:", error);
+      console.error("Failed to compose cast:", error);
       toast({
-        title: "Error",
-        description: "Failed to copy link to clipboard.",
+        title: "Share Failed",
+        description: "Could not share your stats. Please try again.",
         variant: "destructive",
       });
     }
@@ -352,31 +332,6 @@ export function UserStats() {
               >
                 <Share2 className="w-4 h-4" />
                 Share Stats
-              </Button>
-              <Button
-                onClick={() => {
-                  const baseUrl = window.location.origin;
-                  const params = new URLSearchParams({
-                    address: accountAddress!,
-                    ...(farcasterUser?.username && {
-                      username: farcasterUser.username,
-                    }),
-                    ...(farcasterUser?.pfpUrl && {
-                      pfpUrl: farcasterUser.pfpUrl,
-                    }),
-                    ...(farcasterUser?.fid && {
-                      fid: farcasterUser.fid.toString(),
-                    }),
-                  });
-                  const imageUrl = `${baseUrl}/api/user-stats-image?${params.toString()}`;
-                  window.open(imageUrl, "_blank");
-                }}
-                variant="ghost"
-                size="sm"
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-800"
-              >
-                <ExternalLink className="w-4 h-4" />
-                View Image
               </Button>
             </div>
           </div>
@@ -563,7 +518,6 @@ function StatsSkeleton() {
               <Skeleton className="h-3 w-1/4" />
             </div>
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-8 w-24" />
               <Skeleton className="h-8 w-24" />
             </div>
           </div>
