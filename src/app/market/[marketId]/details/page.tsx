@@ -76,7 +76,7 @@ export async function generateMetadata(
         : "0.0";
 
     const miniAppEmbed = {
-      version: "next" as const,
+      version: "1" as const,
       imageUrl: imageUrl,
       button: {
         title: "View Market Details",

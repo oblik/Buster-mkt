@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   },
   other: {
     "fc:miniapp": JSON.stringify({
-      version: "next",
+      version: "1",
       imageUrl: "https://buster-mkt.vercel.app/icon.jpg",
       button: {
         title: "Explore Markets🏪",

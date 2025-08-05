@@ -47,7 +47,7 @@ export async function generateMetadata(
     const shortAddress = `${address.slice(0, 6)}...${address.slice(-4)}`;
     const checkYoursUrl = `${baseUrl}/?tab=myvotes`;
     const miniAppEmbed = {
-      version: "next" as const,
+      version: "1" as const,
       imageUrl: imageUrl,
       button: {
         title: "Check Yours",
