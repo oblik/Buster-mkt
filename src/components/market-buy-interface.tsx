@@ -359,29 +359,27 @@ export function MarketBuyInterface({
     try {
       const amountInUnits = toUnits(amount, tokenDecimals);
 
-      const calls = [
-        {
-          to: tokenAddress,
-          data: encodeFunctionData({
-            abi: tokenAbi,
-            functionName: "approve",
-            args: [contractAddress, amountInUnits],
-          }),
-          value: 0n,
-        },
-        {
-          to: contractAddress,
-          data: encodeFunctionData({
-            abi: contractAbi,
-            functionName: "buyShares",
-            args: [BigInt(marketId), selectedOption === "A", amountInUnits],
-          }),
-          value: 0n,
-        },
-      ];
-
       sendCalls(
-        { calls },
+        {
+          calls: [
+            {
+              to: tokenAddress,
+              data: encodeFunctionData({
+                abi: tokenAbi,
+                functionName: "approve",
+                args: [contractAddress, amountInUnits],
+              }),
+            },
+            {
+              to: contractAddress,
+              data: encodeFunctionData({
+                abi: contractAbi,
+                functionName: "buyShares",
+                args: [BigInt(marketId), selectedOption === "A", amountInUnits],
+              }),
+            },
+          ],
+        },
         {
           onSuccess: (id) => {
             console.log("Batch transaction successful with id:", id);
