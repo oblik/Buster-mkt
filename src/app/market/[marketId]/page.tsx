@@ -60,7 +60,7 @@ async function fetchMarketData(marketId: string) {
         data: v2MarketData,
       };
     }
-  } catch (error) {
+  } catch {
     // V2 market doesn't exist, try V1
     console.log(`Market ${marketId} not found in V2, trying V1...`);
   }
@@ -82,7 +82,7 @@ async function fetchMarketData(marketId: string) {
         data: v1MarketData,
       };
     }
-  } catch (error) {
+  } catch {
     console.log(`Market ${marketId} not found in V1 either`);
   }
 

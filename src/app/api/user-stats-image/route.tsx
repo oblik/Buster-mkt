@@ -6,7 +6,6 @@ import {
   V2contractAddress,
   V2contractAbi,
   tokenAddress as defaultTokenAddress,
-  tokenAbi as defaultTokenAbi,
 } from "@/constants/contract";
 import satori from "satori";
 import sharp from "sharp";
@@ -65,8 +64,6 @@ async function fetchUserStats(address: Address): Promise<UserStatsData> {
       functionName: "bettingToken",
     })) as Address;
 
-    const tokenAddress = bettingTokenAddr || defaultTokenAddress;
-
     // Get V1 total winnings
     const totalWinnings = (await publicClient.readContract({
       address: contractAddress,
@@ -93,7 +90,7 @@ async function fetchUserStats(address: Address): Promise<UserStatsData> {
         functionName: "totalWinnings",
         args: [address],
       })) as bigint;
-    } catch (error) {
+    } catch {
       console.log("V2 portfolio not accessible or user has no V2 activity");
     }
 

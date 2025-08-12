@@ -22,8 +22,6 @@ type LeaderboardEntry = {
 export function EnhancedPredictionMarketDashboard() {
   const { address } = useAccount();
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const currentPathname = usePathname();
 
   // Initialize with a fixed default. Will be updated from URL after client mount.
   const [activeTab, setActiveTab] = useState("active");

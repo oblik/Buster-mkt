@@ -108,9 +108,8 @@ export async function generateMetadata(
   }
 }
 
-export default async function UserProfilePage({ params, searchParams }: Props) {
+export default async function UserProfilePage({ params }: Props) {
   const { address } = await params;
-  const searchParamsResolved = await searchParams;
 
   if (!address) {
     return (

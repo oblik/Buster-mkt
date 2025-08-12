@@ -89,28 +89,8 @@ export function MarketDetailsClient({
 
   const totalSharesDisplay = Number(totalSharesInUnits) / 10 ** TOKEN_DECIMALS;
 
-  // Calculate percentages based on market version
-  let optionAPercentage = 50;
-  let optionBPercentage = 50;
-
-  if (market.version === "v1") {
-    optionAPercentage =
-      totalSharesInUnits > 0n
-        ? Math.round(
-            (Number(market.totalOptionAShares || 0n) /
-              Number(totalSharesInUnits)) *
-              100
-          )
-        : 50;
-    optionBPercentage =
-      totalSharesInUnits > 0n
-        ? Math.round(
-            (Number(market.totalOptionBShares || 0n) /
-              Number(totalSharesInUnits)) *
-              100
-          )
-        : 50;
-  }
+  // V2 markets handle percentages differently in their components
+  // V1 markets calculate percentages in MarketProgress component
 
   const now = Date.now();
   const endTimeMs = Number(market.endTime) * 1000;

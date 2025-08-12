@@ -272,7 +272,7 @@ export function UserStats() {
               } else {
                 break; // No more trades
               }
-            } catch (innerError) {
+            } catch {
               break; // End of trades or error accessing index
             }
           }
@@ -342,9 +342,6 @@ export function UserStats() {
             };
           });
         }
-
-        // V2 market info fetching
-        const uniqueV2MarketIds = [...new Set(v2Trades.map((t) => t.marketId))];
 
         let wins = 0;
         let losses = 0;

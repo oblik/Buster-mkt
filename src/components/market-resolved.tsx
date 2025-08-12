@@ -29,9 +29,6 @@ export function MarketResolved({
   const contractAddr = version === "v2" ? V2contractAddress : contractAddress;
   const contractAbiToUse = version === "v2" ? V2contractAbi : contractAbi;
 
-  // For V2, use claimWinnings status, for V1 use getUserClaimedStatus
-  const functionName = version === "v2" ? "markets" : "getUserClaimedStatus";
-
   // Only fetch claimed status if account is connected
   const { data: claimedStatus, isLoading } = useReadContract({
     abi: contractAbiToUse,

@@ -109,10 +109,7 @@ export function MarketBuyInterface({
   const {
     sendCalls,
     data: callsData,
-    isSuccess: callsSuccess,
     isPending: callsPending,
-    isError: callsError,
-    error: callsErrorMsg,
   } = useSendCalls({
     mutation: {
       onSuccess: (data) => {
@@ -179,7 +176,6 @@ export function MarketBuyInterface({
   // Monitor the status of batch calls
   const {
     data: callsStatusData,
-    isLoading: callsStatusLoading,
     isSuccess: callsStatusSuccess,
     isError: callsStatusError,
     error: callsStatusErrorMsg,

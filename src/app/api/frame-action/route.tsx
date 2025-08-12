@@ -1,29 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// V1 and V2 market info types for potential future use
-type MarketInfoV1ContractReturn = readonly [
-  string,
-  string,
-  string,
-  bigint,
-  number,
-  bigint,
-  bigint,
-  boolean
-];
-
-type MarketInfoV2ContractReturn = readonly [
-  string, // question
-  string[], // options
-  bigint, // endTime
-  number, // category
-  bigint, // optionCount
-  boolean, // resolved
-  bigint, // resolutionTime
-  bigint, // winningOptionId
-  bigint // totalVolume
-];
-
 export async function POST(req: NextRequest) {
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL || "https://buster-mkt.vercel.app";

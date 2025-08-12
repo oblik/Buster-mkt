@@ -102,7 +102,7 @@ async function fetchMarketData(marketId: string): Promise<MarketImageData> {
           version: "v2",
         };
       }
-    } catch (error) {
+    } catch {
       // V2 market doesn't exist, try V1
       console.log(`Market ${marketId} not found in V2, trying V1...`);
     }
@@ -135,7 +135,7 @@ async function fetchMarketData(marketId: string): Promise<MarketImageData> {
           version: "v1",
         };
       }
-    } catch (error) {
+    } catch {
       console.log(`Market ${marketId} not found in V1 either`);
     }
 

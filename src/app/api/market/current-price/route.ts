@@ -82,7 +82,7 @@ async function getCurrentMarketPrice(marketId: string) {
           timestamp: Date.now(),
         };
       }
-    } catch (error) {
+    } catch {
       console.log(`Market ${marketId} not found in V2, trying V1...`);
     }
 
@@ -156,7 +156,7 @@ async function getCurrentMarketPrice(marketId: string) {
           timestamp: Date.now(),
         };
       }
-    } catch (error) {
+    } catch {
       console.log(`Market ${marketId} not found in V1 either`);
     }
 

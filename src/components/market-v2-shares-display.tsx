@@ -1,6 +1,10 @@
 "use client";
 
-import { MarketV2, MarketOption } from "@/types/types";
+impexport function MarketV2SharesDisplay({
+  market,
+  userShares,
+  options,
+}: MarketV2SharesDisplayProps) {{ MarketV2, MarketOption } from "@/types/types";
 
 interface MarketV2SharesDisplayProps {
   market: MarketV2;
@@ -17,10 +21,9 @@ function formatShares(shares: bigint, decimals: number = 18): string {
 }
 
 export function MarketV2SharesDisplay({
-  market,
   userShares,
   options,
-}: MarketV2SharesDisplayProps) {
+}: Omit<MarketV2SharesDisplayProps, "market">) {
   // Filter out options where user has shares
   const userPositions = userShares
     .map((shares, index) => ({

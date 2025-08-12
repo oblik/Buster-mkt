@@ -328,14 +328,12 @@ export function VoteHistory() {
             <button
               onClick={() => handleSort("timestamp")}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
-              aria-sort={getAriaSort("timestamp")}
             >
               Date <ArrowUpDown className="h-3 w-3" />
             </button>
             <button
               onClick={() => handleSort("amount")}
               className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
-              aria-sort={getAriaSort("amount")}
             >
               Amount <ArrowUpDown className="h-3 w-3" />
             </button>
