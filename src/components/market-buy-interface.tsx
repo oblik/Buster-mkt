@@ -572,7 +572,9 @@ export function MarketBuyInterface({
   };
 
   const handleSetApproval = async () => {
+    console.log("=== HANDLE SET APPROVAL ===");
     if (!isConnected || !accountAddress) {
+      console.log("❌ Wallet not connected");
       toast({
         title: "Wallet Connection Required",
         description: "Please connect your wallet to continue",
@@ -581,10 +583,19 @@ export function MarketBuyInterface({
       return;
     }
 
+    console.log("Setting processing state and preparing approval...");
     setIsProcessing(true);
     try {
       const amountInUnits = toUnits(amount, tokenDecimals);
 
+      console.log("Approval details:");
+      console.log("- Token address:", tokenAddress);
+      console.log("- Contract address:", contractAddress);
+      console.log("- Amount in units:", amountInUnits.toString());
+      console.log("- Amount string:", amount);
+      console.log("- Token decimals:", tokenDecimals);
+
+      console.log("🚀 Calling writeContractAsync for approval...");
       // Only approve the exact amount needed (no more unlimited approvals)
       await writeContractAsync({
         address: tokenAddress,
@@ -592,6 +603,7 @@ export function MarketBuyInterface({
         functionName: "approve",
         args: [contractAddress, amountInUnits], // Exact amount only
       });
+      console.log("✅ Approval writeContractAsync completed");
 
       // Don't show toast here - let the useEffect handle it after confirmation
     } catch (error: unknown) {
@@ -619,12 +631,17 @@ export function MarketBuyInterface({
   };
 
   const handleConfirm = async () => {
+    console.log("=== HANDLE CONFIRM CALLED ===");
+    console.log("Button clicked - starting purchase process");
+
     if (!selectedOption || !amount || Number(amount) <= 0) {
+      console.log("❌ Validation failed - missing option or amount");
       setError("Must select an option and enter an amount greater than 0");
       return;
     }
 
     if (!isConnected || !accountAddress) {
+      console.log("❌ Wallet not connected");
       toast({
         title: "Wallet Connection Required",
         description: "Please connect your wallet to continue",
@@ -635,6 +652,7 @@ export function MarketBuyInterface({
 
     const numAmount = Number(amount);
     if (numAmount > MAX_BET) {
+      console.log("❌ Amount exceeds maximum bet");
       toast({
         title: "Maximum Bet Exceeded",
         description: `Maximum shares you can buy is ${MAX_BET} ${tokenSymbol}`,
@@ -643,6 +661,7 @@ export function MarketBuyInterface({
       return;
     }
 
+    console.log("✅ All validations passed - proceeding with purchase");
     setIsProcessing(true);
 
     const amountInUnits = toUnits(amount, tokenDecimals);
@@ -670,6 +689,7 @@ export function MarketBuyInterface({
       return;
     }
 
+    /* COMMENTED OUT FOR DEBUGGING - UNREACHABLE CODE
     // Prepare batch calls without explicit value fields
     const batchCalls = [
       {
@@ -760,6 +780,7 @@ export function MarketBuyInterface({
     }
 
     // Note: Async errors will be handled by useSendCalls onError callback
+    */
   };
 
   const handleFallbackTransaction = async (amountInUnits: bigint) => {
@@ -770,25 +791,43 @@ export function MarketBuyInterface({
       const needsApproval = amountInUnits > userAllowance;
 
       if (needsApproval) {
+        console.log("=== FALLBACK APPROVAL TRANSACTION ===");
         console.log("Starting sequential approval first");
+        console.log("Token address:", tokenAddress);
+        console.log("Contract address:", contractAddress);
+        console.log("Amount to approve:", amountInUnits.toString());
+        console.log("Current allowance:", userAllowance.toString());
+
         setBuyingStep("allowance");
+
+        console.log("🚀 Calling writeContractAsync for approval...");
         await writeContractAsync({
           address: tokenAddress,
           abi: tokenAbi,
           functionName: "approve",
           args: [contractAddress, amountInUnits],
         });
+        console.log("✅ Approval writeContractAsync completed");
         // Approval transaction will be confirmed by useEffect
         // which will then trigger handleFallbackPurchase
       } else {
+        console.log("=== FALLBACK PURCHASE TRANSACTION ===");
         console.log("Starting direct purchase (already approved)");
+        console.log("Contract address:", contractAddress);
+        console.log("Market ID:", marketId);
+        console.log("Selected option A:", selectedOption === "A");
+        console.log("Amount in units:", amountInUnits.toString());
+
         setBuyingStep("confirm");
+
+        console.log("🚀 Calling writeContractAsync for purchase...");
         await writeContractAsync({
           address: contractAddress,
           abi: contractAbi,
           functionName: "buyShares",
           args: [BigInt(marketId), selectedOption === "A", amountInUnits],
         });
+        console.log("✅ Purchase writeContractAsync completed");
         // Purchase transaction will be confirmed by useEffect
       }
     } catch (fallbackError) {
@@ -819,6 +858,7 @@ export function MarketBuyInterface({
 
   // Separate function to handle the purchase step in fallback mode
   const handleFallbackPurchase = async () => {
+    console.log("=== FALLBACK PURCHASE AFTER APPROVAL ===");
     console.log("Starting fallback purchase after approval");
 
     try {
@@ -827,12 +867,22 @@ export function MarketBuyInterface({
 
       const amountInUnits = toUnits(amount, tokenDecimals);
 
+      console.log("Purchase details:");
+      console.log("- Contract address:", contractAddress);
+      console.log("- Market ID:", marketId);
+      console.log("- Selected option A:", selectedOption === "A");
+      console.log("- Amount in units:", amountInUnits.toString());
+      console.log("- Amount string:", amount);
+      console.log("- Token decimals:", tokenDecimals);
+
+      console.log("🚀 Calling writeContractAsync for fallback purchase...");
       await writeContractAsync({
         address: contractAddress,
         abi: contractAbi,
         functionName: "buyShares",
         args: [BigInt(marketId), selectedOption === "A", amountInUnits],
       });
+      console.log("✅ Fallback purchase writeContractAsync completed");
       // Purchase transaction will be confirmed by useEffect
     } catch (purchaseError) {
       console.error("Fallback purchase failed:", purchaseError);
