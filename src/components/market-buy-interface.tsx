@@ -659,9 +659,12 @@ export function MarketBuyInterface({
     console.log("Connector client:", connectorClient);
     console.log("sendCalls available:", !!sendCalls);
 
-    // Check if wallet supports batch transactions
-    if (!sendCalls) {
-      console.warn("sendCalls not available, forcing fallback");
+    // TEMPORARY DEBUG: Force fallback to test if V1 contract works with regular transactions
+    if (true) {
+      // Change to false to test batch transactions again
+      console.warn(
+        "🚨 DEBUG MODE: Forcing fallback to test V1 contract with regular transactions"
+      );
       handleFallbackTransaction(amountInUnits);
       return;
     }

@@ -53,7 +53,7 @@ function AnalyticsContentInner() {
             </p>
           </div>
           <Badge variant="secondary" className="text-lg px-4 py-2">
-            Platform
+            Policast
           </Badge>
         </div>
       </div>
