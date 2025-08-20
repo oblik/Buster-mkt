@@ -12,31 +12,36 @@ export async function detectMarketVersion(
   marketId: number
 ): Promise<"v1" | "v2"> {
   try {
-    // Try to fetch V2 market info first
-    const v2MarketInfo = await publicClient.readContract({
-      address: V2contractAddress,
-      abi: V2contractAbi,
+    // Try to fetch V1 market info first (V1 markets have lower IDs)
+    const v1MarketInfo = await publicClient.readContract({
+      address: contractAddress,
+      abi: contractAbi,
       functionName: "getMarketInfo",
       args: [BigInt(marketId)],
     });
 
-    // If successful and has optionCount > 2, it's V2
-    const optionCount = Number(v2MarketInfo[4]);
-    if (optionCount > 2) {
-      return "v2";
-    }
-
-    // If optionCount is 2, check if it has V2-specific features
-    const hasDescription = v2MarketInfo[1] && v2MarketInfo[1].length > 0; // description field
-    if (hasDescription) {
-      return "v2";
-    }
-
+    // If successful, it's V1
     return "v1";
   } catch (error) {
-    // If V2 call fails, assume it's V1
-    console.log("Market appears to be V1:", error);
-    return "v1";
+    // If V1 call fails, try V2
+    try {
+      const v2MarketInfo = await publicClient.readContract({
+        address: V2contractAddress,
+        abi: V2contractAbi,
+        functionName: "getMarketInfo",
+        args: [BigInt(marketId)],
+      });
+
+      // If successful, it's V2
+      return "v2";
+    } catch (v2Error) {
+      // If both fail, assume V1 (fallback)
+      console.log("Market detection failed for both V1 and V2:", {
+        error,
+        v2Error,
+      });
+      return "v1";
+    }
   }
 }
 
