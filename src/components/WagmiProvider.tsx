@@ -75,7 +75,7 @@ function useCoinbaseWalletAutoConnect() {
 export const config = createConfig({
   chains: [base],
   transports: {
-    [base.id]: http(),
+    [base.id]: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL),
   },
   connectors: [
     miniAppConnector(),
