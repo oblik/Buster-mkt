@@ -355,7 +355,7 @@ export function MarketV2BuyInterface({
       console.log("Current price:", currentPrice.toString());
       console.log("Max price per share:", maxPricePerShare.toString());
 
-      // Prepare batch calls without explicit value fields
+      // Prepare batch calls
       const batchCalls = [
         {
           to: tokenAddress,
@@ -380,25 +380,66 @@ export function MarketV2BuyInterface({
         },
       ];
 
-      console.log("V2 Batch calls prepared:", batchCalls);
-      console.log("Approve call data:", batchCalls[0].data);
-      console.log("BuyShares call data:", batchCalls[1].data);
-
-      // Check if we can use EIP-5792 batch transactions
-      if (isFarcasterConnector) {
-        console.log(
-          "🔗 V2 Using Farcaster wallet with EIP-5792 batch transactions"
-        );
-      } else {
-        console.log(
-          "🔗 V2 Using standard wallet with EIP-5792 batch transactions"
-        );
+      // Check wallet capabilities before sending batch
+      let atomicSupported = false;
+      if (window.ethereum && window.ethereum.request) {
+        try {
+          const capabilities = await window.ethereum.request({
+            method: "wallet_getCapabilities",
+            params: [accountAddress, [window.ethereum.chainId]],
+          });
+          atomicSupported =
+            capabilities?.[window.ethereum.chainId]?.atomic === true ||
+            capabilities?.atomic === "supported";
+          console.log("Wallet capabilities:", capabilities);
+        } catch (capErr) {
+          console.warn("Could not fetch wallet capabilities:", capErr);
+        }
       }
 
-      // Try the batch transaction
-      sendCalls({
-        calls: batchCalls,
-      });
+      // Try Wagmi first
+      let wagmiFailed = false;
+      try {
+        await sendCalls({
+          calls: batchCalls,
+        });
+      } catch (wagmiErr) {
+        wagmiFailed = true;
+        console.warn("Wagmi batch failed, trying raw provider:", wagmiErr);
+      }
+
+      // If Wagmi fails, try raw provider
+      if (wagmiFailed && window.ethereum && window.ethereum.request) {
+        try {
+          const batchParams = {
+            version: "1.0",
+            chainId: window.ethereum.chainId,
+            from: accountAddress,
+            atomicRequired: true,
+            calls: batchCalls,
+          };
+          const result = await window.ethereum.request({
+            method: "wallet_sendCalls",
+            params: [batchParams],
+          });
+          console.log("Raw wallet_sendCalls result:", result);
+        } catch (rawErr) {
+          const err = rawErr as any;
+          // If error code 4200 or unsupported, fallback
+          if (
+            err?.code === 4200 ||
+            (err?.message && err.message.includes("Unsupported Method"))
+          ) {
+            console.warn(
+              "wallet_sendCalls unsupported, falling back to sequential"
+            );
+            handleSequentialPurchase();
+          } else {
+            console.error("wallet_sendCalls failed:", err);
+            handleSequentialPurchase();
+          }
+        }
+      }
     } catch (err) {
       console.error("V2 Batch purchase preparation failed:", err);
       handleSequentialPurchase();
