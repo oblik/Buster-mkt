@@ -9,7 +9,7 @@ import { useWallet } from "@/components/WagmiProvider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Home, BarChart3, User, Trophy, Menu, X, Settings } from "lucide-react";
-// import { useUserRoles } from "@/hooks/useUserRoles";
+import { useUserRoles } from "@/hooks/useUserRoles";
 
 export function Navbar() {
   const [username, setUsername] = useState<string | null>(null);
@@ -17,7 +17,7 @@ export function Navbar() {
   const [pfpError, setPfpError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const wallet = useWallet();
-  // const { hasCreatorAccess, hasResolverAccess, isAdmin } = useUserRoles();
+  const { hasCreatorAccess, hasResolverAccess, isAdmin } = useUserRoles();
   const pathname = usePathname();
 
   const navigationItems = [
@@ -27,12 +27,12 @@ export function Navbar() {
   ];
 
   // Add admin link only for authorized users
-  // const allNavigationItems = [
-  //   ...navigationItems,
-  //   ...(hasCreatorAccess || hasResolverAccess || isAdmin
-  //     ? [{ name: "Admin", href: "/admin", icon: Settings }]
-  //     : []),
-  // ];
+  const allNavigationItems = [
+    ...navigationItems,
+    ...(hasCreatorAccess || hasResolverAccess || isAdmin
+      ? [{ name: "Admin", href: "/admin", icon: Settings }]
+      : []),
+  ];
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -200,7 +200,7 @@ export function Navbar() {
           </div>
 
           {/* Navigation Links */}
-          {/* <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-4">
             {allNavigationItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
@@ -217,7 +217,7 @@ export function Navbar() {
                 </Link>
               );
             })}
-          </nav> */}
+          </nav>
         </div>
 
         <div className="flex items-center gap-3">
@@ -268,7 +268,7 @@ export function Navbar() {
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="mb-4 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border">
-            {/* <nav className="flex flex-col gap-2">
+            <nav className="flex flex-col gap-2">
               {allNavigationItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
@@ -289,7 +289,7 @@ export function Navbar() {
                   </Link>
                 );
               })}
-            </nav> */}
+            </nav>
           </div>
         )}
       </div>

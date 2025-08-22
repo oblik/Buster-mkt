@@ -7,12 +7,14 @@ import {
   contractAbi,
   tokenAddress as defaultTokenAddress,
   tokenAbi as defaultTokenAbi,
+  V2contractAddress,
+  V2contractAbi,
 } from "@/constants/contract";
 import { Address } from "viem";
 
 const cache = new NodeCache({ stdTTL: 3600, checkperiod: 120 }); // 1-hour TTL
-const CACHE_KEY = "leaderboard_v6";
-const NEYNAR_CACHE_KEY = "neynar_users_v6";
+const CACHE_KEY = "leaderboard_v7"; // Updated version for V1+V2 combined
+const NEYNAR_CACHE_KEY = "neynar_users_v7";
 const PAGE_SIZE = 100; // Users per contract call
 
 interface NeynarRawUser {
@@ -132,8 +134,10 @@ export async function GET() {
     ).then((results) => [Number(results[0].result)]);
     console.log(`💸 Token Decimals: ${tokenDecimals}`);
 
-    console.log("📊 Fetching leaderboard...");
-    const totalParticipants = (await withRetry(() =>
+    console.log("📊 Fetching leaderboard from V1 and V2 contracts...");
+
+    // Fetch V1 leaderboard
+    const totalParticipantsV1 = (await withRetry(() =>
       publicClient.readContract({
         address: contractAddress,
         abi: contractAbi,
@@ -141,12 +145,16 @@ export async function GET() {
       })
     )) as bigint;
 
-    const entries: {
+    const entriesV1: {
       user: Address;
       totalWinnings: bigint;
       voteCount: number;
     }[] = [];
-    for (let start = 0; start < Number(totalParticipants); start += PAGE_SIZE) {
+    for (
+      let start = 0;
+      start < Number(totalParticipantsV1);
+      start += PAGE_SIZE
+    ) {
       const batch = (await withRetry(() =>
         publicClient.readContract({
           address: contractAddress,
@@ -159,10 +167,60 @@ export async function GET() {
         totalWinnings: bigint;
         voteCount: number;
       }[];
-      entries.push(...batch);
+      entriesV1.push(...batch);
     }
 
-    const winners = entries
+    // V2 leaderboard is currently disabled since V2 contract doesn't have getLeaderboard function
+    // V2 uses different analytics approach with getUserPortfolio for individual user data
+    const entriesV2: {
+      user: Address;
+      totalWinnings: bigint;
+      voteCount: number;
+    }[] = [];
+
+    // TODO: Implement V2 leaderboard using getUserPortfolio + allParticipants when needed
+    // For now, we only use V1 leaderboard data
+
+    // Combine V1 and V2 entries by address
+    const combinedEntries = new Map<
+      string,
+      {
+        user: Address;
+        totalWinnings: bigint;
+        voteCount: number;
+      }
+    >();
+
+    // Add V1 entries
+    entriesV1.forEach((entry) => {
+      const addr = entry.user.toLowerCase();
+      combinedEntries.set(addr, {
+        user: entry.user,
+        totalWinnings: entry.totalWinnings,
+        voteCount: entry.voteCount,
+      });
+    });
+
+    // Add V2 entries (combine with existing V1 data if user exists)
+    entriesV2.forEach((entry) => {
+      const addr = entry.user.toLowerCase();
+      const existing = combinedEntries.get(addr);
+      if (existing) {
+        combinedEntries.set(addr, {
+          user: entry.user,
+          totalWinnings: existing.totalWinnings + entry.totalWinnings,
+          voteCount: existing.voteCount + entry.voteCount,
+        });
+      } else {
+        combinedEntries.set(addr, {
+          user: entry.user,
+          totalWinnings: entry.totalWinnings,
+          voteCount: entry.voteCount,
+        });
+      }
+    });
+
+    const winners = Array.from(combinedEntries.values())
       .filter((entry) => entry.totalWinnings > 0) // Only include users with winnings
       .map((entry) => ({
         address: entry.user.toLowerCase(),
