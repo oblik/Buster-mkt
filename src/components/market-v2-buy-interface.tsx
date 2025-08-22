@@ -236,6 +236,7 @@ export function MarketV2BuyInterface({
           amountInUnits,
           maxPricePerShare,
         ],
+        gas: 300000n,
       });
     } catch (err) {
       console.error("Direct purchase failed:", err);
