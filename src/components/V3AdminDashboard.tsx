@@ -197,7 +197,7 @@ export function V3AdminDashboard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>V3 Admin Dashboard</CardTitle>
+          <CardTitle>Admin Dashboard</CardTitle>
           <CardDescription>
             Connect wallet to access admin functions
           </CardDescription>
@@ -224,7 +224,7 @@ export function V3AdminDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 mb-20">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">V3 Admin Dashboard</h1>

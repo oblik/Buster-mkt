@@ -40,7 +40,7 @@ function AnalyticsContentInner() {
   };
 
   return (
-    <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl">
+    <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl mb-20">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between">
