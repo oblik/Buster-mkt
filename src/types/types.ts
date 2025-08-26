@@ -14,7 +14,6 @@ export interface Market {
 export enum MarketType {
   PAID = 0,
   FREE_ENTRY = 1,
-  SPONSORED = 2,
 }
 
 // V2 Market Categories
@@ -37,6 +36,8 @@ export interface MarketOption {
   totalVolume: bigint;
   currentPrice: bigint;
   isActive: boolean;
+  k?: bigint; // AMM liquidity constant for this option
+  reserve?: bigint; // AMM reserve for this option
 }
 
 // V2 Market (Multi-option)
@@ -62,19 +63,16 @@ export interface MarketV2 {
   platformFeesCollected?: bigint;
   ammFeesCollected?: bigint;
   adminLiquidityClaimed?: boolean;
+  ammLiquidityPool?: bigint;
+  payoutIndex?: bigint;
   // Free Entry Configuration
   freeEntryConfig?: {
     maxFreeParticipants: bigint;
-    freeSharesPerUser: bigint;
+    tokensPerParticipant: bigint; // Changed from freeSharesPerUser
     currentFreeParticipants: bigint;
+    totalPrizePool: bigint;
+    remainingPrizePool: bigint;
     isActive: boolean;
-  };
-  // Sponsored Market Configuration
-  sponsoredConfig?: {
-    sponsor: string;
-    sponsorPrize: bigint;
-    minimumParticipants: bigint;
-    sponsorMessage: string;
   };
   // AMM Configuration
   ammConfig?: {
@@ -91,6 +89,24 @@ export interface UserPortfolio {
   unrealizedPnL: bigint;
   realizedPnL: bigint;
   tradeCount: number;
+}
+
+// Trade data structure from contract
+export interface Trade {
+  marketId: bigint;
+  optionId: bigint;
+  buyer: string;
+  seller: string;
+  price: bigint;
+  quantity: bigint;
+  timestamp: bigint;
+}
+
+// Price point for market history
+export interface PricePoint {
+  price: bigint;
+  timestamp: bigint;
+  volume: bigint;
 }
 
 // V2 Market Stats from Contract
@@ -135,6 +151,31 @@ export interface PlatformStats {
   currentFeeCollector: string;
   totalMarkets: bigint;
   totalTrades: bigint;
+}
+
+// Free market claim status
+export interface FreeMarketClaimStatus {
+  hasClaimed: boolean;
+  tokensReceived: bigint;
+  canClaim: boolean;
+  slotsRemaining: bigint;
+}
+
+// Market creation parameters for different types
+export interface CreateMarketParams {
+  question: string;
+  description: string;
+  optionNames: string[];
+  optionDescriptions: string[];
+  duration: bigint;
+  category: MarketCategory;
+  marketType: MarketType;
+  initialLiquidity: bigint;
+}
+
+export interface CreateFreeMarketParams extends CreateMarketParams {
+  maxFreeParticipants: bigint;
+  tokensPerParticipant: bigint;
 }
 
 export interface VolumeHistoryData {

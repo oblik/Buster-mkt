@@ -36,8 +36,6 @@ import {
   Minus,
   Calendar,
   DollarSign,
-  Users,
-  Gift,
   Info,
   Loader2,
   CheckCircle,
@@ -64,7 +62,6 @@ enum MarketCategory {
 enum MarketType {
   PAID = 0,
   FREE_ENTRY = 1,
-  SPONSORED = 2,
 }
 
 const CATEGORY_LABELS = {
@@ -81,7 +78,6 @@ const CATEGORY_LABELS = {
 const MARKET_TYPE_LABELS = {
   [MarketType.PAID]: "Paid Market",
   [MarketType.FREE_ENTRY]: "Free Entry Market",
-  [MarketType.SPONSORED]: "Sponsored Market",
 };
 
 export function CreateMarketV2() {
@@ -106,11 +102,6 @@ export function CreateMarketV2() {
   // Free market specific
   const [maxFreeParticipants, setMaxFreeParticipants] = useState<string>("100");
   const [freeSharesPerUser, setFreeSharesPerUser] = useState<string>("10");
-
-  // Sponsored market specific
-  const [minimumParticipants, setMinimumParticipants] = useState<string>("50");
-  const [sponsorMessage, setSponsorMessage] = useState("");
-  const [sponsorPrize, setSponsorPrize] = useState<string>("0.1"); // ETH
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -279,9 +270,27 @@ export function CreateMarketV2() {
 
       // Add market creation call
       let marketCreationData;
-      let value = 0n;
+      const value = 0n;
 
       if (marketType === MarketType.FREE_ENTRY) {
+        // For free markets, we need to calculate total cost: liquidity + prize pool
+        const tokensPerUser = parseEther(freeSharesPerUser);
+        const maxParticipants = BigInt(maxFreeParticipants);
+        const totalPrizePool = tokensPerUser * maxParticipants;
+        const totalRequired = liquidityWei + totalPrizePool;
+
+        // Update approval if needed for the total amount
+        if (totalRequired > currentAllowance) {
+          calls[0] = {
+            to: tokenAddress,
+            data: encodeFunctionData({
+              abi: tokenAbi,
+              functionName: "approve",
+              args: [V2contractAddress, totalRequired],
+            }),
+          };
+        }
+
         marketCreationData = encodeFunctionData({
           abi: V2contractAbi,
           functionName: "createFreeMarket",
@@ -292,26 +301,9 @@ export function CreateMarketV2() {
             optionDescriptions,
             BigInt(durationInSeconds),
             category,
-            BigInt(maxFreeParticipants),
-            BigInt(freeSharesPerUser),
-            liquidityWei,
-          ],
-        });
-      } else if (marketType === MarketType.SPONSORED) {
-        value = parseEther(sponsorPrize);
-        marketCreationData = encodeFunctionData({
-          abi: V2contractAbi,
-          functionName: "createSponsoredMarket",
-          args: [
-            question,
-            description,
-            optionNames,
-            optionDescriptions,
-            BigInt(durationInSeconds),
-            category,
-            BigInt(minimumParticipants),
-            sponsorMessage,
-            liquidityWei,
+            maxParticipants, // _maxFreeParticipants
+            tokensPerUser, // _tokensPerParticipant
+            liquidityWei, // _initialLiquidity
           ],
         });
       } else {
@@ -374,9 +366,6 @@ export function CreateMarketV2() {
     ]);
     setMaxFreeParticipants("100");
     setFreeSharesPerUser("10");
-    setMinimumParticipants("50");
-    setSponsorMessage("");
-    setSponsorPrize("0.1");
     setIsSubmitting(false);
   };
 
@@ -630,7 +619,7 @@ export function CreateMarketV2() {
               <Separator />
               <div className="space-y-4">
                 <h3 className="text-lg font-medium flex items-center gap-2">
-                  <Gift className="h-5 w-5" />
+                  <Info className="h-5 w-5" />
                   Free Market Settings
                 </h3>
 
@@ -640,7 +629,7 @@ export function CreateMarketV2() {
                       htmlFor="maxParticipants"
                       className="flex items-center gap-2"
                     >
-                      <Users className="h-4 w-4" />
+                      <DollarSign className="h-4 w-4" />
                       Max Free Participants
                     </Label>
                     <Input
@@ -653,7 +642,7 @@ export function CreateMarketV2() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="freeShares">Free Shares Per User</Label>
+                    <Label htmlFor="freeShares">Free Tokens Per User</Label>
                     <Input
                       id="freeShares"
                       type="number"
@@ -662,61 +651,6 @@ export function CreateMarketV2() {
                       onChange={(e) => setFreeSharesPerUser(e.target.value)}
                     />
                   </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {marketType === MarketType.SPONSORED && (
-            <>
-              <Separator />
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium flex items-center gap-2">
-                  <Gift className="h-5 w-5" />
-                  Sponsored Market Settings
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="minParticipants"
-                      className="flex items-center gap-2"
-                    >
-                      <Users className="h-4 w-4" />
-                      Minimum Participants
-                    </Label>
-                    <Input
-                      id="minParticipants"
-                      type="number"
-                      min="1"
-                      value={minimumParticipants}
-                      onChange={(e) => setMinimumParticipants(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sponsorPrize">Prize Pool (ETH)</Label>
-                    <Input
-                      id="sponsorPrize"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={sponsorPrize}
-                      onChange={(e) => setSponsorPrize(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="sponsorMessage">Sponsor Message</Label>
-                  <Textarea
-                    id="sponsorMessage"
-                    placeholder="Message to display with the sponsored market..."
-                    value={sponsorMessage}
-                    onChange={(e) => setSponsorMessage(e.target.value)}
-                    rows={2}
-                    maxLength={200}
-                  />
                 </div>
               </div>
             </>
