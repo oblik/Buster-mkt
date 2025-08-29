@@ -113,6 +113,26 @@ export function MarketV2SellInterface({
     query: { enabled: selectedOptionId !== null },
   });
 
+  // Fetch real-time AMM revenue estimation for sell amount
+  const { data: estimatedRevenue, refetch: refetchEstimatedRevenue } =
+    useReadContract({
+      address: V2contractAddress,
+      abi: V2contractAbi,
+      functionName: "calculateAMMSellRevenue",
+      args: [
+        BigInt(marketId),
+        BigInt(selectedOptionId || 0),
+        BigInt(Math.floor(parseFloat(sellAmount || "0") * Math.pow(10, 18))),
+      ],
+      query: {
+        enabled:
+          selectedOptionId !== null &&
+          sellAmount !== "" &&
+          sellAmount !== null &&
+          parseFloat(sellAmount || "0") > 0,
+      },
+    });
+
   // Calculate minimum price with slippage protection (5% slippage tolerance)
   const calculateMinPrice = useCallback((currentPrice: bigint): bigint => {
     return (currentPrice * 95n) / 100n; // 5% slippage protection
@@ -124,7 +144,8 @@ export function MarketV2SellInterface({
       !accountAddress ||
       selectedOptionId === null ||
       !sellAmount ||
-      !tokenDecimals
+      !tokenDecimals ||
+      !estimatedRevenue
     )
       return;
 
@@ -135,15 +156,19 @@ export function MarketV2SellInterface({
       const sellAmountBigInt = BigInt(
         Math.floor(parseFloat(sellAmount) * Math.pow(10, 18))
       );
-      const currentPrice = optionData?.[4] || 0n; // currentPrice from getMarketOption
-      const minPricePerShare = calculateMinPrice(currentPrice);
+
+      // Calculate minimum price per share from estimated revenue with slippage protection
+      const avgPricePerShare =
+        (estimatedRevenue * BigInt(1e18)) / sellAmountBigInt;
+      const minPricePerShare = calculateMinPrice(avgPricePerShare);
 
       console.log("=== V2 SELL TRANSACTION ===");
       console.log("Market ID:", marketId);
       console.log("Option ID:", selectedOptionId);
       console.log("Sell Amount:", sellAmountBigInt.toString());
-      console.log("Current Price:", currentPrice.toString());
-      console.log("Min Price:", minPricePerShare.toString());
+      console.log("Estimated Revenue:", estimatedRevenue.toString());
+      console.log("Avg Price Per Share:", avgPricePerShare.toString());
+      console.log("Min Price Per Share:", minPricePerShare.toString());
 
       await writeContractAsync({
         address: V2contractAddress,
@@ -168,7 +193,7 @@ export function MarketV2SellInterface({
     selectedOptionId,
     sellAmount,
     tokenDecimals,
-    optionData,
+    estimatedRevenue,
     calculateMinPrice,
     marketId,
     writeContractAsync,
@@ -192,13 +217,23 @@ export function MarketV2SellInterface({
         onSellComplete();
       }
 
+      // Refresh data
+      refetchEstimatedRevenue();
+
       // Reset after delay
       setTimeout(() => {
         setSellingStep("initial");
         setError(null);
       }, 3000);
     }
-  }, [isTxConfirmed, hash, lastProcessedHash, toast, onSellComplete]);
+  }, [
+    isTxConfirmed,
+    hash,
+    lastProcessedHash,
+    toast,
+    onSellComplete,
+    refetchEstimatedRevenue,
+  ]);
 
   // Handle errors
   useEffect(() => {
@@ -231,8 +266,10 @@ export function MarketV2SellInterface({
   const userSharesForOption =
     selectedOptionId !== null ? userShares[selectedOptionId] || 0n : 0n;
   const maxSellAmount = Number(userSharesForOption) / Math.pow(10, 18);
-  const estimatedRevenue = sellAmount
-    ? (parseFloat(sellAmount) * Number(currentPrice)) / Math.pow(10, 18)
+
+  // Use AMM estimated revenue instead of simple calculation
+  const estimatedRevenueFormatted = estimatedRevenue
+    ? Number(estimatedRevenue) / Math.pow(10, 18)
     : 0;
 
   // Get options with user shares
@@ -351,9 +388,33 @@ export function MarketV2SellInterface({
                   MAX
                 </button>
               </div>
-              {sellAmount && (
+              {estimatedRevenue && sellAmount && parseFloat(sellAmount) > 0 && (
+                <div className="text-sm text-gray-600 mt-2 p-2 bg-gray-50 rounded">
+                  <div className="flex justify-between">
+                    <span>Shares to Sell:</span>
+                    <span>{sellAmount}</span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Estimated Revenue:</span>
+                    <span>
+                      {estimatedRevenueFormatted.toFixed(4)}{" "}
+                      {tokenSymbol || "TOKENS"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Avg Price/Share:</span>
+                    <span>
+                      {(
+                        estimatedRevenueFormatted / parseFloat(sellAmount)
+                      ).toFixed(4)}{" "}
+                      {tokenSymbol || "TOKENS"}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {sellAmount && !estimatedRevenue && (
                 <div className="text-sm text-gray-600">
-                  Estimated Revenue: ~{estimatedRevenue.toFixed(4)}{" "}
+                  Estimated Revenue: ~{estimatedRevenueFormatted.toFixed(4)}{" "}
                   {tokenSymbol || "TOKENS"}
                 </div>
               )}
@@ -410,14 +471,26 @@ export function MarketV2SellInterface({
                 <div className="flex justify-between">
                   <span>Min Price (5% slippage):</span>
                   <span className="font-medium">
-                    {formatPrice(calculateMinPrice(currentPrice))} {tokenSymbol}
+                    {estimatedRevenue && sellAmount
+                      ? formatPrice(
+                          (((estimatedRevenue * BigInt(1e18)) /
+                            BigInt(
+                              Math.floor(
+                                parseFloat(sellAmount) * Math.pow(10, 18)
+                              )
+                            )) *
+                            95n) /
+                            100n
+                        )
+                      : formatPrice(calculateMinPrice(currentPrice))}{" "}
+                    {tokenSymbol}
                   </span>
                 </div>
                 <hr className="border-red-200" />
                 <div className="flex justify-between font-medium">
                   <span>Estimated Revenue:</span>
                   <span>
-                    ~{estimatedRevenue.toFixed(4)} {tokenSymbol}
+                    ~{estimatedRevenueFormatted.toFixed(4)} {tokenSymbol}
                   </span>
                 </div>
               </div>
