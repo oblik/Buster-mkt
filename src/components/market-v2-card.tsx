@@ -30,6 +30,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { MessageCircle } from "lucide-react";
 import { MarketV2, MarketOption, MarketCategory } from "@/types/types";
+import { FreeMarketClaimStatus } from "./FreeMarketClaimStatus";
 
 // Add LinkifiedText component for URL preview support
 const LinkifiedText = ({ text }: { text: string }) => {
@@ -115,6 +116,15 @@ const InvalidatedBadge = () => {
   return (
     <span className="inline-block px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
       Invalidated
+    </span>
+  );
+};
+
+// Free market badge component
+const FreeMarketBadge = () => {
+  return (
+    <span className="inline-block px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+      Free Entry
     </span>
   );
 };
@@ -237,6 +247,11 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
             <div className="flex items-center gap-2">
               <CategoryBadge category={market.category} />
               <InvalidatedBadge />
+              {/* Show free market badge if marketType is 1 */}
+              {marketInfo &&
+                marketInfo.length > 6 &&
+                typeof marketInfo[6] === "bigint" &&
+                marketInfo[6] === 1n && <FreeMarketBadge />}
             </div>
           </div>
           <CardTitle className="text-base leading-relaxed">
@@ -247,6 +262,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               <LinkifiedText text={market.description} />
             </p>
           )}
+
+          {/* Free Market Claim Status */}
+          <FreeMarketClaimStatus marketId={index} className="mt-3" />
         </CardHeader>
         <CardContent className="pb-4">
           <div className="text-center py-4">
@@ -306,7 +324,12 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           <MarketTime endTime={market.endTime} />
           <div className="flex items-center gap-2">
             <CategoryBadge category={market.category} />
-            {market.invalidated && <InvalidatedBadge />}
+            {isInvalidated && <InvalidatedBadge />}
+            {/* Show free market badge if marketType is 1 */}
+            {marketInfo &&
+              marketInfo.length > 6 &&
+              typeof marketInfo[6] === "bigint" &&
+              marketInfo[6] === 1n && <FreeMarketBadge />}
           </div>
         </div>
         <CardTitle className="text-base leading-relaxed">
@@ -317,6 +340,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
             <LinkifiedText text={market.description} />
           </p>
         )}
+
+        {/* Free Market Claim Status */}
+        <FreeMarketClaimStatus marketId={index} className="mt-3" />
       </CardHeader>
 
       <CardContent className="pb-0">

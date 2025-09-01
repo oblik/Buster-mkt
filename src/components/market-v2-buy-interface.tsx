@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { MarketV2 } from "@/types/types";
 import { ValidationNotice } from "./ValidationNotice";
+import { FreeTokenClaimButton } from "./FreeTokenClaimButton";
 
 interface MarketV2BuyInterfaceProps {
   marketId: number;
@@ -1223,12 +1224,30 @@ export function MarketV2BuyInterface({
     );
   }
 
+  // Check if this is a free market (marketType = 1)
+  const isFreeMarket =
+    marketInfo &&
+    marketInfo.length > 6 &&
+    typeof marketInfo[6] === "bigint" &&
+    marketInfo[6] === 1n;
+
   return (
     <div
       className="w-full transition-all duration-300 ease-in-out overflow-visible"
       style={{ minHeight: containerHeight }}
     >
       <div ref={contentRef} className="space-y-4">
+        {/* Free Token Claim Section - Show for free markets */}
+        {isFreeMarket && (
+          <FreeTokenClaimButton
+            marketId={marketId}
+            onClaimComplete={() => {
+              // Refresh market data after claiming
+              // Optionally show a success message or update UI
+            }}
+          />
+        )}
+
         {!isBuying ? (
           // Initial state - option selection
           <div className="space-y-3">
