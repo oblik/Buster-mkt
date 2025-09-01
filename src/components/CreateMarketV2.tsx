@@ -465,14 +465,28 @@ export function CreateMarketV2() {
           const totalPrizePool = tokensPerUser * maxParticipants;
           console.log("Total prize pool (wei):", totalPrizePool.toString());
 
-          requiredApproval = liquidityWei + totalPrizePool;
+          // NOTE: Contract has a bug where createFreeMarket transfers tokens twice:
+          // 1. totalRequired (liquidity + prize pool)
+          // 2. _initialLiquidity again in createMarket
+          // So we need to approve: liquidity + prize pool + liquidity = 2*liquidity + prize pool
+          requiredApproval = liquidityWei + totalPrizePool + liquidityWei;
           console.log(
-            "💰 Updated required approval (liquidity + prize pool):",
+            "💰 Required approval (accounting for contract):",
             requiredApproval.toString()
+          );
+          console.log(
+            "⚠️ Contract transfers liquidity twice, so approving extra:",
+            liquidityWei.toString(),
+            "tokens"
           );
           console.log(
             "💎 Prize pool amount:",
             totalPrizePool.toString(),
+            "BUSTER"
+          );
+          console.log(
+            "🔄 Total required (due to contract bug):",
+            (Number(requiredApproval) / 1e18).toLocaleString(),
             "BUSTER"
           );
         } catch (error) {
@@ -507,9 +521,13 @@ export function CreateMarketV2() {
         setIsSubmitting(false);
         const requiredTokens = Number(requiredApproval) / 1e18;
         const currentTokens = Number(userBalance) / 1e18;
+        const isFreeMarket = marketType === MarketType.FREE_ENTRY;
+        const extraMessage = isFreeMarket
+          ? " Note: Free markets require extra tokens due to a contract implementation that transfers liquidity twice."
+          : "";
         toast({
           title: "Insufficient Balance",
-          description: `You need ${requiredTokens.toLocaleString()} BUSTER tokens but only have ${currentTokens.toLocaleString()}. Please get more tokens to create this market.`,
+          description: `You need ${requiredTokens.toLocaleString()} BUSTER tokens but only have ${currentTokens.toLocaleString()}. Please get more tokens to create this market.${extraMessage}`,
           variant: "destructive",
         });
         return;
