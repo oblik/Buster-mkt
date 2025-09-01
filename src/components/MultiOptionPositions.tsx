@@ -163,6 +163,7 @@ export function MultiOptionPositions() {
             bigint,
             boolean,
             boolean,
+            boolean,
             bigint,
             string
           ];
@@ -175,6 +176,7 @@ export function MultiOptionPositions() {
             optionCount,
             resolved,
             disputed,
+            invalidated,
             winningOptionId,
           ] = marketInfo;
 

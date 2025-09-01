@@ -191,12 +191,22 @@ export function UserPortfolioV2() {
             bigint,
             boolean,
             boolean,
+            boolean,
             bigint,
             string
           ];
 
-          const [question, , , , optionCount, resolved, , winningOptionId] =
-            marketInfo;
+          const [
+            question,
+            ,
+            ,
+            ,
+            optionCount,
+            resolved,
+            ,
+            invalidated,
+            winningOptionId,
+          ] = marketInfo;
 
           // Get option names and current prices
           const options: string[] = [];

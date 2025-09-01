@@ -130,6 +130,7 @@ export function MarketResolver() {
         bigint,
         boolean,
         boolean,
+        boolean,
         bigint,
         string
       ];
@@ -142,6 +143,7 @@ export function MarketResolver() {
         optionCount,
         resolved,
         disputed,
+        invalidated,
         winningOptionId,
         creator,
       ] = marketInfo;

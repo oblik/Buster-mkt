@@ -151,6 +151,7 @@ export function MarketAnalyticsV2() {
             bigint,
             boolean,
             boolean,
+            boolean,
             bigint,
             string
           ];
@@ -239,6 +240,7 @@ export function MarketAnalyticsV2() {
         bigint,
         boolean,
         boolean,
+        boolean,
         bigint,
         string
       ];
@@ -251,6 +253,7 @@ export function MarketAnalyticsV2() {
         optionCount,
         resolved,
         disputed,
+        invalidated,
         winningOptionId,
         creator,
       ] = marketInfo;

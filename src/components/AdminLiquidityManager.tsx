@@ -112,12 +112,13 @@ export function AdminLiquidityManager() {
         abi: V2contractAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
-      })) as [
+      })) as readonly [
         string,
         string,
         bigint,
         number,
         bigint,
+        boolean,
         boolean,
         boolean,
         bigint,

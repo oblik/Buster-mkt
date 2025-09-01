@@ -230,6 +230,7 @@ export function VolumeAnalyticsV2() {
             bigint,
             boolean,
             boolean,
+            boolean,
             bigint,
             string
           ];
@@ -347,6 +348,7 @@ export function VolumeAnalyticsV2() {
         bigint,
         number,
         bigint,
+        boolean,
         boolean,
         boolean,
         bigint,

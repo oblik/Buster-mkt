@@ -92,12 +92,13 @@ export function V3FinancialManager({
   // Determine actual roles based on contract data
   useEffect(() => {
     if (marketInfo && address) {
-      const [, , , , , , , , creator] = marketInfo as [
+      const [, , , , , , , , , creator] = marketInfo as [
         string,
         string,
         bigint,
         number,
         bigint,
+        boolean,
         boolean,
         boolean,
         bigint,
