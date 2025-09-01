@@ -1116,7 +1116,7 @@ export function CreateMarketV2() {
                     Fallback Mode Enabled
                   </h4>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Batch transactions failed. You'll need to approve token
+                    Batch transactions failed. You&apos;ll need to approve token
                     spending first, then create the market in separate
                     transactions.
                   </p>
