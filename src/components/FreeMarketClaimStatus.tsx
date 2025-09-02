@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Gift, Users, Clock, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface FreeMarketClaimStatusProps {
   marketId: number;
@@ -33,7 +33,7 @@ export function FreeMarketClaimStatus({
 }: FreeMarketClaimStatusProps) {
   const { address } = useAccount();
   const { toast } = useToast();
-  const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
+  const [hasShownSuccessToast, setHasShownSuccessToast] = useState(false);
 
   // Claim free tokens transaction
   const {
@@ -78,8 +78,45 @@ export function FreeMarketClaimStatus({
     abi: V2contractAbi,
     functionName: "getMarketInfo",
     args: [BigInt(marketId)],
+    query: {
+      refetchInterval: 30000, // Check every 30 seconds for market type
+    },
   });
 
+  // Handle claim success
+  useEffect(() => {
+    if (isClaimConfirmed && !hasShownSuccessToast && freeMarketInfo) {
+      setHasShownSuccessToast(true);
+      const tokensPerParticipant = freeMarketInfo[1];
+      toast({
+        title: "Tokens Claimed Successfully! 🎉",
+        description: `You've claimed ${formatPrice(
+          tokensPerParticipant,
+          18
+        )} tokens for this free market.`,
+      });
+    }
+  }, [isClaimConfirmed, hasShownSuccessToast, freeMarketInfo, toast]);
+
+  // Handle claim error
+  useEffect(() => {
+    if (claimError) {
+      toast({
+        title: "Claim Failed",
+        description: claimError.message || "Failed to claim free tokens",
+        variant: "destructive",
+      });
+    }
+  }, [claimError, toast]);
+
+  // Reset success toast flag when starting a new claim
+  useEffect(() => {
+    if (isClaimPending) {
+      setHasShownSuccessToast(false);
+    }
+  }, [isClaimPending]);
+
+  // Early returns after all hooks
   if (!address || !freeMarketInfo || !marketInfo) {
     return null;
   }
@@ -120,26 +157,6 @@ export function FreeMarketClaimStatus({
       });
     }
   };
-
-  // Handle claim success
-  if (isClaimConfirmed) {
-    toast({
-      title: "Tokens Claimed Successfully! 🎉",
-      description: `You've claimed ${formatPrice(
-        tokensPerParticipant,
-        18
-      )} tokens for this free market.`,
-    });
-  }
-
-  // Handle claim error
-  if (claimError) {
-    toast({
-      title: "Claim Failed",
-      description: claimError.message || "Failed to claim free tokens",
-      variant: "destructive",
-    });
-  }
 
   return (
     <div className={`space-y-2 ${className}`}>

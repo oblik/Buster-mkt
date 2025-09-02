@@ -72,6 +72,9 @@ export function FreeTokenClaimButton({
     abi: V2contractAbi,
     functionName: "getMarketInfo",
     args: [BigInt(marketId)],
+    query: {
+      refetchInterval: 30000, // Check every 30 seconds for market type
+    },
   });
 
   const isLoading = isWritePending || isConfirming;
@@ -87,9 +90,9 @@ export function FreeTokenClaimButton({
   // Check if market is free entry (marketType = 1)
   const isFreeMarket =
     marketInfo &&
-    marketInfo.length > 6 &&
-    typeof marketInfo[6] === "bigint" &&
-    marketInfo[6] === 1n;
+    marketInfo.length > 7 &&
+    typeof marketInfo[7] === "number" &&
+    marketInfo[7] === 1;
 
   const handleClaimFreeTokens = async () => {
     if (!address) {
