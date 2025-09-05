@@ -380,6 +380,7 @@ export function CreateMarketV2() {
       duration,
       initialLiquidity,
       options,
+      earlyResolutionAllowed,
       maxFreeParticipants:
         marketType === MarketType.FREE_ENTRY ? maxFreeParticipants : "N/A",
       freeSharesPerUser:
@@ -636,6 +637,7 @@ export function CreateMarketV2() {
         maxFreeParticipants: BigInt(maxFreeParticipants).toString(),
         tokensPerParticipant: parseEther(freeSharesPerUser).toString(),
         initialLiquidity: liquidityWei.toString(),
+        earlyResolutionAllowed,
       });
 
       marketCreationData = encodeFunctionData({
@@ -664,6 +666,7 @@ export function CreateMarketV2() {
         category,
         marketType,
         initialLiquidity: liquidityWei.toString(),
+        earlyResolutionAllowed,
       });
 
       marketCreationData = encodeFunctionData({
