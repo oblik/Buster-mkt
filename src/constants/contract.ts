@@ -9,7 +9,7 @@ export const publicClient = createPublicClient({
 
 export const contractAddress = "0xd24261cD87Ac11A8961a2d5df7036ad87ca7F02A";
 export const tokenAddress = "0x53Bd7F868764333de01643ca9102ee4297eFA3cb";
-export const V2contractAddress = "0x0E1f2fD0858200435C3D7d36929940b35B4991C9"; //new ca
+export const V2contractAddress = "0xd028a7488335745252F53ffdB59ED051fB5DB505";
 
 // V1 Contract ABI for binary markets (legacy)
 export const contractAbi = [
@@ -1270,20 +1270,6 @@ export const V2contractAbi = [
   },
   {
     type: "function",
-    name: "batchDistributeWinnings",
-    inputs: [
-      { name: "_marketId", type: "uint256", internalType: "uint256" },
-      {
-        name: "_recipients",
-        type: "address[]",
-        internalType: "address[]",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
     name: "bettingToken",
     inputs: [],
     outputs: [{ name: "", type: "address", internalType: "contract IERC20" }],
@@ -1432,6 +1418,11 @@ export const V2contractAbi = [
         type: "uint256",
         internalType: "uint256",
       },
+      {
+        name: "_earlyResolutionAllowed",
+        type: "bool",
+        internalType: "bool",
+      },
     ],
     outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
     stateMutability: "nonpayable",
@@ -1468,6 +1459,11 @@ export const V2contractAbi = [
         type: "uint256",
         internalType: "uint256",
       },
+      {
+        name: "_earlyResolutionAllowed",
+        type: "bool",
+        internalType: "bool",
+      },
     ],
     outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
     stateMutability: "nonpayable",
@@ -1498,19 +1494,9 @@ export const V2contractAbi = [
   },
   {
     type: "function",
-    name: "getEligibleWinners",
-    inputs: [
-      { name: "_marketId", type: "uint256", internalType: "uint256" },
-      { name: "_users", type: "address[]", internalType: "address[]" },
-    ],
-    outputs: [
-      {
-        name: "recipients",
-        type: "address[]",
-        internalType: "address[]",
-      },
-      { name: "amounts", type: "uint256[]", internalType: "uint256[]" },
-    ],
+    name: "getEventBasedMarkets",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256[]", internalType: "uint256[]" }],
     stateMutability: "view",
   },
   {
@@ -1637,6 +1623,11 @@ export const V2contractAbi = [
         internalType: "uint256",
       },
       { name: "creator", type: "address", internalType: "address" },
+      {
+        name: "earlyResolutionAllowed",
+        type: "bool",
+        internalType: "bool",
+      },
     ],
     stateMutability: "view",
   },
@@ -1665,6 +1656,59 @@ export const V2contractAbi = [
         internalType: "uint256",
       },
       { name: "isActive", type: "bool", internalType: "bool" },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getMarketParticipants",
+    inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
+    outputs: [
+      {
+        name: "participants",
+        type: "address[]",
+        internalType: "address[]",
+      },
+      {
+        name: "participantCount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getMarketStatus",
+    inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
+    outputs: [
+      { name: "isActive", type: "bool", internalType: "bool" },
+      { name: "isResolved", type: "bool", internalType: "bool" },
+      { name: "isExpired", type: "bool", internalType: "bool" },
+      { name: "canTrade", type: "bool", internalType: "bool" },
+      { name: "canResolve", type: "bool", internalType: "bool" },
+      {
+        name: "timeRemaining",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getMarketTiming",
+    inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
+    outputs: [
+      { name: "createdAt", type: "uint256", internalType: "uint256" },
+      { name: "endTime", type: "uint256", internalType: "uint256" },
+      {
+        name: "timeRemaining",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      { name: "isExpired", type: "bool", internalType: "bool" },
+      { name: "canResolveEarly", type: "bool", internalType: "bool" },
     ],
     stateMutability: "view",
   },
@@ -1737,6 +1781,20 @@ export const V2contractAbi = [
     name: "getRoleAdmin",
     inputs: [{ name: "role", type: "bytes32", internalType: "bytes32" }],
     outputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getUnresolvedMarkets",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256[]", internalType: "uint256[]" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getUserMarkets",
+    inputs: [{ name: "_user", type: "address", internalType: "address" }],
+    outputs: [{ name: "", type: "uint256[]", internalType: "uint256[]" }],
     stateMutability: "view",
   },
   {
@@ -1872,6 +1930,13 @@ export const V2contractAbi = [
     inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
     outputs: [],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "isMarketTradable",
+    inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
+    outputs: [{ name: "", type: "bool", internalType: "bool" }],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -2897,6 +2962,7 @@ export const V2contractAbi = [
   { type: "error", name: "MarketNotResolved", inputs: [] },
   { type: "error", name: "MarketNotValidated", inputs: [] },
   { type: "error", name: "MarketResolvedAlready", inputs: [] },
+  { type: "error", name: "MarketTooNew", inputs: [] },
   { type: "error", name: "MinTokensRequired", inputs: [] },
   { type: "error", name: "NoFeesToWithdraw", inputs: [] },
   { type: "error", name: "NoLPRewards", inputs: [] },

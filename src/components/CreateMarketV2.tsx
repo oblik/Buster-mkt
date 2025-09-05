@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -102,6 +103,9 @@ export function CreateMarketV2() {
   // Free market specific
   const [maxFreeParticipants, setMaxFreeParticipants] = useState<string>("3");
   const [freeSharesPerUser, setFreeSharesPerUser] = useState<string>("100");
+
+  // Event-based market option
+  const [earlyResolutionAllowed, setEarlyResolutionAllowed] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [useFallbackTransaction, setUseFallbackTransaction] = useState(false);
@@ -647,6 +651,7 @@ export function CreateMarketV2() {
           BigInt(maxFreeParticipants), // _maxFreeParticipants
           parseEther(freeSharesPerUser), // _tokensPerParticipant
           liquidityWei, // _initialLiquidity
+          earlyResolutionAllowed, // allow early resolution flag
         ],
       });
     } else {
@@ -673,6 +678,7 @@ export function CreateMarketV2() {
           category,
           marketType,
           liquidityWei,
+          earlyResolutionAllowed,
         ],
       });
     }
@@ -738,7 +744,6 @@ export function CreateMarketV2() {
 
     console.log("✅ Allowance sufficient for fallback transaction");
 
-    // Create market directly
     if (marketType === MarketType.FREE_ENTRY) {
       console.log("🎁 Creating free market via fallback...");
       await writeContract({
@@ -755,9 +760,11 @@ export function CreateMarketV2() {
           BigInt(maxFreeParticipants),
           parseEther(freeSharesPerUser),
           liquidityWei,
+          earlyResolutionAllowed,
         ],
       });
     } else {
+      // } else {
       console.log("💰 Creating paid market via fallback...");
       await writeContract({
         address: V2contractAddress,
@@ -772,6 +779,7 @@ export function CreateMarketV2() {
           category,
           marketType,
           liquidityWei,
+          earlyResolutionAllowed,
         ],
       });
     }
@@ -971,6 +979,22 @@ export function CreateMarketV2() {
                   onChange={(e) => setInitialLiquidity(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="earlyResolution"
+                checked={earlyResolutionAllowed}
+                onCheckedChange={(checked) =>
+                  setEarlyResolutionAllowed(checked as boolean)
+                }
+              />
+              <Label
+                htmlFor="earlyResolution"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Allow early resolution for event-based markets
+              </Label>
             </div>
           </div>
 

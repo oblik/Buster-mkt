@@ -161,7 +161,8 @@ async function checkMarketBatchForAdmin(
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       // Check if user is the market creator

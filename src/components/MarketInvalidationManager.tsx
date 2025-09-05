@@ -113,7 +113,8 @@ export function MarketInvalidationManager() {
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       setMarketInfo({

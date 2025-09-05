@@ -148,7 +148,8 @@ export function MarketValidationManager() {
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       const [

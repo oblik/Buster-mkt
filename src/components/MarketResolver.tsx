@@ -52,6 +52,7 @@ interface MarketInfo {
   options: string[];
   totalShares: bigint[];
   canResolve: boolean;
+  earlyResolutionAllowed: boolean;
 }
 
 export function MarketResolver() {
@@ -134,7 +135,8 @@ export function MarketResolver() {
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       const [
@@ -149,6 +151,7 @@ export function MarketResolver() {
         invalidated,
         winningOptionId,
         creator,
+        earlyResolutionAllowed,
       ] = marketInfo;
 
       // Get option details
@@ -184,6 +187,7 @@ export function MarketResolver() {
         options,
         totalShares,
         canResolve,
+        earlyResolutionAllowed,
       };
     } catch (error) {
       console.error(`Error fetching market ${marketId}:`, error);
@@ -199,6 +203,24 @@ export function MarketResolver() {
 
   const handleResolveMarket = async () => {
     if (!selectedMarket || !winningOptionId || !hasResolverAccess) return;
+
+    // Check early resolution constraints
+    if (selectedMarket.earlyResolutionAllowed) {
+      const now = Math.floor(Date.now() / 1000);
+      const endTime = Number(selectedMarket.endTime);
+      const timeUntilEnd = endTime - now;
+
+      // Must be at least 1 hour before end time for early resolution
+      if (timeUntilEnd < 3600) {
+        toast({
+          title: "Cannot Resolve Early",
+          description:
+            "Event-based markets must be resolved at least 1 hour before the scheduled end time.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     try {
       await writeContract({

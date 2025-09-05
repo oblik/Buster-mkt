@@ -199,6 +199,7 @@ export async function fetchV2Market(marketId: number): Promise<MarketV2> {
     disputed,
     validated: true, // Assume validated if we can fetch it
     invalidated: invalidated as boolean,
+    earlyResolutionAllowed: false,
     winningOptionId: Number(winningOptionId),
     creator,
     createdAt: 0n, // Not available in basic market info

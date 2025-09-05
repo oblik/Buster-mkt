@@ -130,6 +130,22 @@ const FreeMarketBadge = () => {
   );
 };
 
+// Event-based market badge component
+const EventBasedBadge = () => {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 border border-orange-200 shadow-sm">
+      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+        <path
+          fillRule="evenodd"
+          d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+          clipRule="evenodd"
+        />
+      </svg>
+      Event-Based
+    </span>
+  );
+};
+
 interface MarketV2CardProps {
   index: number;
   market: MarketV2;
@@ -246,7 +262,10 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
       <Card key={index} className="flex flex-col border-red-200 bg-red-50">
         <CardHeader>
           <div className="flex items-center justify-between mb-2">
-            <MarketTime endTime={market.endTime} />
+            <MarketTime
+              endTime={market.endTime}
+              earlyResolutionAllowed={market.earlyResolutionAllowed}
+            />
             <div className="flex items-center gap-2">
               <CategoryBadge category={market.category} />
               <InvalidatedBadge />
@@ -255,6 +274,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
                 marketInfo.length > 7 &&
                 typeof marketInfo[7] === "number" &&
                 marketInfo[7] === 1 && <FreeMarketBadge />}
+              {/* Show event-based badge if early resolution is allowed */}
+              {market.earlyResolutionAllowed && <EventBasedBadge />}
             </div>
           </div>
           <CardTitle className="text-base leading-relaxed">
@@ -324,7 +345,10 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     <Card key={index} className="flex flex-col">
       <CardHeader>
         <div className="flex items-center justify-between mb-2">
-          <MarketTime endTime={market.endTime} />
+          <MarketTime
+            endTime={market.endTime}
+            earlyResolutionAllowed={market.earlyResolutionAllowed}
+          />
           <div className="flex items-center gap-2">
             <CategoryBadge category={market.category} />
             {isInvalidated && <InvalidatedBadge />}
@@ -333,6 +357,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               marketInfo.length > 7 &&
               typeof marketInfo[7] === "number" &&
               marketInfo[7] === 1 && <FreeMarketBadge />}
+            {/* Show event-based badge if early resolution is allowed */}
+            {market.earlyResolutionAllowed && <EventBasedBadge />}
           </div>
         </div>
         <CardTitle className="text-base leading-relaxed">

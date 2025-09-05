@@ -34,7 +34,8 @@ type MarketInfoV2ContractReturn = readonly [
   number, // marketType
   boolean, // invalidated
   bigint, // winningOptionId
-  string // creator
+  string, // creator
+  boolean // earlyResolutionAllowed
 ];
 
 // Helper function to determine market version and fetch data

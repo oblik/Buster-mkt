@@ -10,7 +10,7 @@ export interface Market {
   resolved: boolean;
 }
 
-// V2 Market Types
+// V2 Market Types//
 export enum MarketType {
   PAID = 0,
   FREE_ENTRY = 1,
@@ -73,6 +73,8 @@ export interface MarketV2 {
     totalLiquidity: bigint;
     feeRate: bigint;
   };
+  // Event-based market support
+  earlyResolutionAllowed: boolean;
 }
 
 // Free Entry Configuration
@@ -174,6 +176,7 @@ export interface CreateMarketParams {
   category: MarketCategory;
   marketType: MarketType;
   initialLiquidity: bigint;
+  earlyResolutionAllowed: boolean;
 }
 
 export interface CreateFreeMarketParams extends CreateMarketParams {

@@ -47,6 +47,8 @@ interface Market {
   outcome: number;
   resolved: boolean;
   version?: "v1" | "v2";
+  // Event-based market support
+  earlyResolutionAllowed?: boolean;
 }
 
 interface MarketDetailsClientProps {
@@ -257,11 +259,14 @@ export function MarketDetailsClient({
           {/* Market Context - show if there are URLs in the question */}
           <MarketContext question={market.question} className="mb-3 md:mb-4" />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 mt-3 md:mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4 mt-3 md:mt-4">
             <div className="flex items-center">
               <Clock className="text-gray-500 dark:text-gray-400 w-4 h-4 md:w-5 md:h-5 mr-2" />
               <div>
-                <MarketTime endTime={market.endTime} />
+                <MarketTime
+                  endTime={market.endTime}
+                  earlyResolutionAllowed={market.earlyResolutionAllowed}
+                />
               </div>
             </div>
 
@@ -276,6 +281,30 @@ export function MarketDetailsClient({
                 </div>
               </div>
             </div>
+
+            {market.earlyResolutionAllowed && (
+              <div className="flex items-center">
+                <svg
+                  className="text-orange-500 w-4 h-4 md:w-5 md:h-5 mr-2"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <div>
+                  <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
+                    Market Type
+                  </div>
+                  <div className="text-xs md:text-sm text-orange-600 dark:text-orange-400 font-medium">
+                    Event-Based
+                  </div>
+                </div>
+              </div>
+            )}
 
             {market.resolved && (
               <div className="flex items-center">
@@ -356,6 +385,8 @@ export function MarketDetailsClient({
                     adminLiquidityClaimed: false,
                     ammLiquidityPool: 0n,
                     payoutIndex: 0n,
+                    earlyResolutionAllowed:
+                      market.earlyResolutionAllowed || false,
                   } satisfies MarketV2
                 }
               />
@@ -411,6 +442,8 @@ export function MarketDetailsClient({
                     adminLiquidityClaimed: false,
                     ammLiquidityPool: 0n,
                     payoutIndex: 0n,
+                    earlyResolutionAllowed:
+                      market.earlyResolutionAllowed || false,
                   } satisfies MarketV2
                 }
               />

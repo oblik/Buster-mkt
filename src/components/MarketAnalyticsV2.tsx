@@ -154,7 +154,8 @@ export function MarketAnalyticsV2() {
             number,
             boolean,
             bigint,
-            string
+            string,
+            boolean
           ];
 
           const [question, , endTime, , optionCount, resolved] = marketInfo;
@@ -244,7 +245,8 @@ export function MarketAnalyticsV2() {
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       const [

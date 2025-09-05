@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 interface MarketTimeProps {
   endTime: bigint;
   className?: string;
+  earlyResolutionAllowed?: boolean;
 }
 
 const calculateTimeLeft = (endTime: bigint) => {
@@ -21,7 +22,11 @@ const calculateTimeLeft = (endTime: bigint) => {
   };
 };
 
-export default function MarketTime({ endTime, className }: MarketTimeProps) {
+export default function MarketTime({
+  endTime,
+  className,
+  earlyResolutionAllowed = false,
+}: MarketTimeProps) {
   const [timeLeft, setTimeLeft] = useState({
     days: 0,
     hours: 0,
@@ -72,7 +77,7 @@ export default function MarketTime({ endTime, className }: MarketTimeProps) {
           ⏱
         </span>
         <span className="text-green-600 dark:text-green-300 font-medium mr-1.5">
-          Ends:
+          {earlyResolutionAllowed ? "Event ends:" : "Ends:"}
         </span>
         <TimeUnit value={0} unit="h" />
         <TimeUnit value={0} unit="m" />
@@ -92,7 +97,7 @@ export default function MarketTime({ endTime, className }: MarketTimeProps) {
         ⏱
       </span>
       <span className="text-green-600 dark:text-green-300 font-medium mr-1.5">
-        Ends:
+        {earlyResolutionAllowed ? "Event ends:" : "Ends:"}
       </span>
       {timeLeft.days > 0 && <TimeUnit value={timeLeft.days} unit="d" />}
       <TimeUnit value={timeLeft.hours} unit="h" />

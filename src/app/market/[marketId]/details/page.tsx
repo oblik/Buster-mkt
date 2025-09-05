@@ -36,7 +36,8 @@ type MarketInfoV2ContractReturn = readonly [
   boolean, // resolved
   boolean, // disputed
   bigint, // winningOptionId
-  string // creator
+  string, // creator
+  boolean // earlyResolutionAllowed
 ];
 
 interface Props {

@@ -166,7 +166,8 @@ export function MultiOptionPositions() {
             number,
             boolean,
             bigint,
-            string
+            string,
+            boolean
           ];
 
           const [

@@ -33,7 +33,8 @@ export async function GET(
       number, // marketType
       boolean, // invalidated
       bigint, // winningOptionId
-      string // creator
+      string, // creator
+      boolean // earlyResolutionAllowed
     ];
 
     const [
@@ -48,6 +49,7 @@ export async function GET(
       invalidated,
       winningOptionId,
       creator,
+      earlyResolutionAllowed,
     ] = marketInfo;
 
     return NextResponse.json({
@@ -63,6 +65,7 @@ export async function GET(
       invalidated,
       winningOptionId: Number(winningOptionId),
       creator,
+      earlyResolutionAllowed,
     });
   } catch (error) {
     console.error("Error fetching market info:", error);

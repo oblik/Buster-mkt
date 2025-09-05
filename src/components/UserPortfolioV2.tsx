@@ -194,7 +194,8 @@ export function UserPortfolioV2() {
             number,
             boolean,
             bigint,
-            string
+              string,
+            boolean
           ];
 
           const [

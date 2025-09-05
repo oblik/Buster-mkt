@@ -103,7 +103,8 @@ export function V3FinancialManager({
         number,
         boolean,
         bigint,
-        string
+          string,
+            boolean
       ];
       setActualIsCreator(
         creator && address

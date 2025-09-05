@@ -41,7 +41,8 @@ type MarketInfoV2ContractReturn = readonly [
   number, // marketType
   boolean, // invalidated
   bigint, // winningOptionId
-  string // creator
+  string,
+  boolean
 ];
 
 async function getCurrentMarketPrice(marketId: string) {

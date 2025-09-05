@@ -196,7 +196,8 @@ export function PriceHistoryV2() {
             number,
             boolean,
             bigint,
-            string
+            string,
+            boolean
           ];
 
           const [question, , , , optionCount, resolved] = marketInfo;
@@ -286,7 +287,8 @@ export function PriceHistoryV2() {
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       const [

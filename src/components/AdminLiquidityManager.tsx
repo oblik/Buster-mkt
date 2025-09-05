@@ -123,7 +123,8 @@ export function AdminLiquidityManager() {
         number,
         boolean,
         bigint,
-        string
+        string, // creator
+        boolean // earlyResolutionAllowed
       ];
 
       const [question, , , , optionCount, resolved] = marketInfo;

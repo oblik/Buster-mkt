@@ -233,7 +233,8 @@ export function VolumeAnalyticsV2() {
             number,
             boolean,
             bigint,
-            string
+            string,
+            boolean
           ];
 
           const [question, , , , optionCount, resolved] = marketInfo;
@@ -354,7 +355,8 @@ export function VolumeAnalyticsV2() {
         number,
         boolean,
         bigint,
-        string
+        string,
+        boolean
       ];
 
       const [question, , , , optionCount, resolved] = marketInfo;
