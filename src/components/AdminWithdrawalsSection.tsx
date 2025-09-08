@@ -47,6 +47,7 @@ export function AdminWithdrawalsSection() {
     total: 0n,
   });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Contract write for withdrawals
   const { writeContract, data: hash, isPending } = useWriteContract();
@@ -59,12 +60,20 @@ export function AdminWithdrawalsSection() {
     if (!address) return;
 
     setLoading(true);
+    setError(null);
     try {
+      // Add timeout to prevent indefinite loading
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch("/api/admin-auto-discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userAddress: address }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
@@ -88,8 +97,18 @@ export function AdminWithdrawalsSection() {
       } else {
         console.error(
           "Failed to auto-discover admin withdrawals:",
+          response.status,
           response.statusText
         );
+
+        const errorMessage =
+          response.status === 504
+            ? "API service temporarily unavailable. Please try again in a few minutes."
+            : `Server error (${response.status}). Please try again.`;
+
+        setError(errorMessage);
+        toast.error(errorMessage);
+
         // Reset to empty state
         setWithdrawals({ adminLiquidity: [], prizePool: [], lpRewards: [] });
         setTotals({
@@ -99,8 +118,28 @@ export function AdminWithdrawalsSection() {
           total: 0n,
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error auto-discovering admin withdrawals:", error);
+
+      let errorMessage =
+        "Failed to load withdrawal data. Please check your connection.";
+
+      // Handle specific error types
+      if (error.name === "AbortError") {
+        errorMessage = "Request timed out. Please try again later.";
+      } else if (
+        error.message?.includes("504") ||
+        error.message?.includes("Gateway Timeout")
+      ) {
+        errorMessage =
+          "API service temporarily unavailable. Please try again in a few minutes.";
+      } else if (error.message?.includes("fetch")) {
+        errorMessage = "Network error. Please check your internet connection.";
+      }
+
+      setError(errorMessage);
+      toast.error(errorMessage);
+
       // Reset to empty state
       setWithdrawals({ adminLiquidity: [], prizePool: [], lpRewards: [] });
       setTotals({
@@ -222,6 +261,38 @@ export function AdminWithdrawalsSection() {
               <span className="ml-2 text-sm text-gray-600">
                 Discovering available withdrawals...
               </span>
+            </div>
+          ) : error ? (
+            <div className="text-center py-4">
+              <div className="text-red-500 mb-4">
+                <svg
+                  className="w-12 h-12 mx-auto mb-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.962-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
+                </svg>
+              </div>
+              <p className="text-gray-600 mb-2">
+                Failed to load withdrawal data
+              </p>
+              <p className="text-sm text-gray-500 mb-4">{error}</p>
+              <Button
+                onClick={() => {
+                  setError(null);
+                  fetchAdminWithdrawals();
+                }}
+                variant="outline"
+                size="sm"
+              >
+                Try Again
+              </Button>
             </div>
           ) : totalWithdrawals === 0 ? (
             <div className="text-center py-4">
