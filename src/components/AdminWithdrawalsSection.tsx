@@ -79,21 +79,33 @@ export function AdminWithdrawalsSection() {
         const data = await response.json();
         console.log("Auto-discovered admin withdrawals:", data);
 
-        setWithdrawals(
-          data.withdrawals || {
-            adminLiquidity: [],
-            prizePool: [],
-            lpRewards: [],
-          }
-        );
-        setTotals(
-          data.totals || {
-            adminLiquidity: 0n,
-            prizePool: 0n,
-            lpRewards: 0n,
-            total: 0n,
-          }
-        );
+        // Convert string amounts back to BigInt for internal use
+        const withdrawalsWithBigInt = {
+          adminLiquidity: (data.withdrawals?.adminLiquidity || []).map(
+            (w: any) => ({
+              ...w,
+              amount: BigInt(w.amount || "0"),
+            })
+          ),
+          prizePool: (data.withdrawals?.prizePool || []).map((w: any) => ({
+            ...w,
+            amount: BigInt(w.amount || "0"),
+          })),
+          lpRewards: (data.withdrawals?.lpRewards || []).map((w: any) => ({
+            ...w,
+            amount: BigInt(w.amount || "0"),
+          })),
+        };
+
+        const totalsWithBigInt = {
+          adminLiquidity: BigInt(data.totals?.adminLiquidity || "0"),
+          prizePool: BigInt(data.totals?.prizePool || "0"),
+          lpRewards: BigInt(data.totals?.lpRewards || "0"),
+          total: BigInt(data.totals?.total || "0"),
+        };
+
+        setWithdrawals(withdrawalsWithBigInt);
+        setTotals(totalsWithBigInt);
       } else {
         console.error(
           "Failed to auto-discover admin withdrawals:",

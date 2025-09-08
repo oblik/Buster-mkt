@@ -62,9 +62,32 @@ export async function POST(request: NextRequest) {
       total: adminWithdrawals.reduce((sum, w) => sum + w.amount, 0n),
     };
 
+    // Convert BigInt values to strings for JSON serialization
+    const serializedWithdrawals = {
+      adminLiquidity: groupedWithdrawals.adminLiquidity.map(w => ({
+        ...w,
+        amount: w.amount.toString()
+      })),
+      prizePool: groupedWithdrawals.prizePool.map(w => ({
+        ...w,
+        amount: w.amount.toString()
+      })),
+      lpRewards: groupedWithdrawals.lpRewards.map(w => ({
+        ...w,
+        amount: w.amount.toString()
+      })),
+    };
+
+    const serializedTotals = {
+      adminLiquidity: totals.adminLiquidity.toString(),
+      prizePool: totals.prizePool.toString(),
+      lpRewards: totals.lpRewards.toString(),
+      total: totals.total.toString(),
+    };
+
     return NextResponse.json({
-      withdrawals: groupedWithdrawals,
-      totals,
+      withdrawals: serializedWithdrawals,
+      totals: serializedTotals,
       totalCount: adminWithdrawals.length,
     });
   } catch (error) {
@@ -85,9 +108,26 @@ async function discoverAdminWithdrawals(
   const withdrawals: AdminWithdrawal[] = [];
 
   try {
+    // First get the actual market count from the contract
+    const marketCount = (await publicClient.readContract({
+      address: V2contractAddress,
+      abi: V2contractAbi,
+      functionName: "getMarketCount",
+      args: [],
+    })) as bigint;
+
+    const maxMarketId = Number(marketCount);
+    console.log(
+      `Contract has ${maxMarketId} markets, checking for admin withdrawals...`
+    );
+
+    if (maxMarketId === 0) {
+      console.log("No markets found in contract");
+      return [];
+    }
+
     // Check markets in batches to avoid rate limits
     const batchSize = 10;
-    const maxMarketId = 200; // Configurable upper limit
 
     for (let startId = 0; startId < maxMarketId; startId += batchSize) {
       const endId = Math.min(startId + batchSize, maxMarketId);
@@ -136,7 +176,10 @@ async function checkMarketBatchForAdmin(
         args: [BigInt(marketId)],
       });
 
-      if (!marketInfo) continue;
+      if (!marketInfo) {
+        console.log(`Market ${marketId} returned no info, skipping...`);
+        continue;
+      }
 
       const [
         question,
@@ -245,9 +288,24 @@ async function checkMarketBatchForAdmin(
       } catch (error) {
         console.debug(`Could not get LP info for market ${marketId}:`, error);
       }
-    } catch (error) {
-      // Market might not exist or other error, continue
-      console.debug(`Market ${marketId} check failed:`, error);
+    } catch (error: any) {
+      // Handle specific error types
+      if (
+        error?.data?.errorName === "InvalidMarket" ||
+        error?.message?.includes("InvalidMarket")
+      ) {
+        console.debug(`Market ${marketId} does not exist, skipping...`);
+      } else {
+        console.error(
+          `Market ${marketId} check failed with unexpected error:`,
+          {
+            error: error?.message || "Unknown error",
+            errorName: error?.data?.errorName,
+            marketId,
+          }
+        );
+      }
+      // Continue with next market regardless of error type
     }
   }
 
