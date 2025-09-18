@@ -40,7 +40,7 @@ interface MarketLiquidity {
   totalVolume: bigint;
   optionCount: number;
   resolved: boolean;
-  liquidityRatio: number; // liquidity vs volume ratio
+  liquidityRatio: number; // liquidity vs volume ratio//
 }
 
 export function AdminLiquidityManager() {
@@ -58,7 +58,7 @@ export function AdminLiquidityManager() {
   const { data: marketCount } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketCount",
+    functionName: "marketCount",
     query: { enabled: isConnected },
   });
 
@@ -112,20 +112,7 @@ export function AdminLiquidityManager() {
         abi: V2contractAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
-      })) as readonly [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        number,
-        boolean,
-        bigint,
-        string, // creator
-        boolean // earlyResolutionAllowed
-      ];
+      })) as unknown as readonly any[];
 
       const [question, , , , optionCount, resolved] = marketInfo;
 
@@ -170,7 +157,7 @@ export function AdminLiquidityManager() {
     try {
       const amountWei = parseEther(liquidityAmount);
 
-      await writeContract({
+      await (writeContract as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "addAMMLiquidity",

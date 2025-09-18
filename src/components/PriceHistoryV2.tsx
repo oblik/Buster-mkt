@@ -97,11 +97,11 @@ export function PriceHistoryV2() {
   const [tokenSymbol, setTokenSymbol] = useState<string>("BSTR");
   const [tokenDecimals, setTokenDecimals] = useState<number>(18);
 
-  // Get betting token info
-  const { data: bettingTokenAddr } = useReadContract({
+  // Get betting token info//
+  const { data: bettingTokenAddr } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getBettingToken",
+    functionName: "bettingToken",
   });
 
   const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
@@ -122,10 +122,10 @@ export function PriceHistoryV2() {
   });
 
   // Get market count
-  const { data: marketCount } = useReadContract({
+  const { data: marketCount } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketCount",
+    functionName: "marketCount",
   });
 
   useEffect(() => {
@@ -185,20 +185,7 @@ export function PriceHistoryV2() {
             abi: V2contractAbi,
             functionName: "getMarketInfo",
             args: [BigInt(i)],
-          })) as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            number,
-            boolean,
-            bigint,
-            string,
-            boolean
-          ];
+          })) as unknown as readonly any[];
 
           const [question, , , , optionCount, resolved] = marketInfo;
 
@@ -276,20 +263,7 @@ export function PriceHistoryV2() {
         abi: V2contractAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        number,
-        boolean,
-        bigint,
-        string,
-        boolean
-      ];
+      })) as unknown as readonly any[];
 
       const [
         question,

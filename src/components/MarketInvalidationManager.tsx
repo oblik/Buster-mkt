@@ -32,7 +32,7 @@ import {
   Loader2,
   XCircle,
 } from "lucide-react";
-
+//
 interface MarketInfo {
   id: number;
   question: string;

@@ -19,7 +19,7 @@ interface UserWinnings {
   amount: bigint;
   hasWinnings: boolean;
 }
-
+// Claim winnings from markets the user has participated in//
 export function ClaimWinningsSection() {
   const { address, isConnected } = useAccount();
   const [userMarkets, setUserMarkets] = useState<number[]>([]);

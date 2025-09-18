@@ -12,7 +12,7 @@ interface MarketResolvedProps {
   optionA?: string; // Optional for V1 compatibility
   optionB?: string; // Optional for V1 compatibility
   options?: string[]; // For V2 multi-option markets
-  version?: "v1" | "v2"; // To determine which contract to use
+  version?: "v1" | "v2"; // To determine which contract to use//
 }
 
 export function MarketResolved({

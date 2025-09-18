@@ -314,3 +314,60 @@ type WinningsDistributedToUser @entity(immutable: true) {
   blockTimestamp: BigInt!
   transactionHash: Bytes!
 }
+
+type Market @entity(immutable: true) {
+  id: ID! # marketId
+  question: String!
+  description: String!
+  options: [String!]!
+  endTime: BigInt!
+  category: String! # e.g., "POLITICS"
+  marketType: String! # e.g., "STANDARD"
+  creator: Bytes!
+  resolved: Boolean!
+  winningOptionId: BigInt
+  invalidated: Boolean!
+  totalVolume: BigInt!
+  liquidity: BigInt! # From getMarketLMSRB
+  createdAt: BigInt! # Block timestamp
+  freeMarketConfig: FreeMarketConfigEntity # For free markets
+}
+
+type FreeMarketConfigEntity @entity(immutable: true) {
+  id: ID! # marketId
+  maxFreeParticipants: BigInt!
+  tokensPerParticipant: BigInt!
+  totalPrizePool: BigInt!
+  currentFreeParticipants: BigInt!
+  isActive: Boolean!
+}
+
+type Trade @entity(immutable: true) {
+  id: ID! # tradeId
+  market: Market!
+  optionId: BigInt!
+  buyer: Bytes!
+  seller: Bytes
+  price: BigInt!
+  quantity: BigInt!
+  timestamp: BigInt!
+}
+
+type UserPortfolio @entity(immutable: true) {
+  id: ID! # user address
+  totalInvested: BigInt!
+  totalWinnings: BigInt!
+  unrealizedPnL: BigInt! # Use BigInt for signed values
+  realizedPnL: BigInt!
+  tradeCount: BigInt!
+  updatedAt: BigInt!
+}
+
+type PriceHistory @entity(immutable: true) {
+  id: ID! # marketId-optionId-timestamp
+  market: Market!
+  optionId: BigInt!
+  price: BigInt!
+  timestamp: BigInt!
+  volume: BigInt!
+}

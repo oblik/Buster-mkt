@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Toaster } from "@/components/ui/toaster";
-import { Clock, Award, Users } from "lucide-react"; //AlertTriangle later for status badge
+import { Clock, Award, Users } from "lucide-react";
 import { MarketBuyInterface } from "@/components/market-buy-interface";
 import { MarketV2BuyInterface } from "@/components/market-v2-buy-interface";
 import { MarketV2PositionManager } from "@/components/MarketV2PositionManager";

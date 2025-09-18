@@ -64,7 +64,7 @@ enum MarketType {
   PAID = 0,
   FREE_ENTRY = 1,
 }
-
+//
 const CATEGORY_LABELS = {
   [MarketCategory.POLITICS]: "Politics",
   [MarketCategory.SPORTS]: "Sports",
@@ -612,7 +612,7 @@ export function CreateMarketV2() {
     if (requiredApproval > currentAllowance) {
       console.log("✅ Adding approval call to batch");
       calls.push({
-        to: tokenAddress,
+        to: tokenAddress as `0x${string}`,
         data: encodeFunctionData({
           abi: tokenAbi,
           functionName: "approve",
@@ -698,7 +698,7 @@ export function CreateMarketV2() {
     console.log("✅ Market creation data encoded successfully");
 
     calls.push({
-      to: V2contractAddress,
+      to: V2contractAddress as `0x${string}`,
       data: marketCreationData,
       value: 0n,
     });

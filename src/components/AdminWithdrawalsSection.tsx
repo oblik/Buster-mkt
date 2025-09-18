@@ -19,7 +19,7 @@ interface AdminWithdrawal {
   type: "adminLiquidity" | "prizePool" | "lpRewards";
   description: string;
 }
-
+//
 interface GroupedWithdrawals {
   adminLiquidity: AdminWithdrawal[];
   prizePool: AdminWithdrawal[];

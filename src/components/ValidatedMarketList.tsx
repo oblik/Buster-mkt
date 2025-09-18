@@ -16,7 +16,7 @@ interface ValidatedMarketListProps {
   filter: "active" | "pending" | "resolved";
   showOnlyValidated?: boolean;
 }
-
+//
 interface MarketWithVersion {
   id: number;
   version: "v1" | "v2";

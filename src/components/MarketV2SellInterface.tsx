@@ -39,7 +39,7 @@ type SellingStep =
   | "processing"
   | "sellSuccess";
 
-// Format price with proper decimals
+// Format price with proper decimals//
 function formatPrice(price: bigint, decimals: number = 18): string {
   const formatted = Number(price) / Math.pow(10, decimals);
   if (formatted < 0.01) return formatted.toFixed(4);
@@ -114,24 +114,16 @@ export function MarketV2SellInterface({
   });
 
   // Fetch real-time AMM revenue estimation for sell amount
-  const { data: estimatedRevenue, refetch: refetchEstimatedRevenue } =
-    useReadContract({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "calculateAMMSellRevenue",
-      args: [
-        BigInt(marketId),
-        BigInt(selectedOptionId || 0),
-        BigInt(Math.floor(parseFloat(sellAmount || "0") * Math.pow(10, 18))),
-      ],
-      query: {
-        enabled:
-          selectedOptionId !== null &&
-          sellAmount !== "" &&
-          sellAmount !== null &&
-          parseFloat(sellAmount || "0") > 0,
-      },
-    });
+  // Note: calculateAMMSellRevenue function not available in current ABI
+  // Using current price from optionData for estimation
+  const estimatedRevenue =
+    optionData && sellAmount
+      ? ((optionData[4] as bigint) *
+          BigInt(
+            Math.floor(parseFloat(sellAmount || "0") * Math.pow(10, 18))
+          )) /
+        BigInt(10 ** 18)
+      : 0n;
 
   // Calculate minimum price with slippage protection (5% slippage tolerance)
   const calculateMinPrice = useCallback((currentPrice: bigint): bigint => {
@@ -159,7 +151,7 @@ export function MarketV2SellInterface({
 
       // Calculate minimum price per share from estimated revenue with slippage protection
       const avgPricePerShare =
-        (estimatedRevenue * BigInt(1e18)) / sellAmountBigInt;
+        ((estimatedRevenue as bigint) * BigInt(1e18)) / sellAmountBigInt;
       const minPricePerShare = calculateMinPrice(avgPricePerShare);
 
       console.log("=== V2 SELL TRANSACTION ===");
@@ -179,6 +171,7 @@ export function MarketV2SellInterface({
           BigInt(selectedOptionId),
           sellAmountBigInt,
           minPricePerShare,
+          estimatedRevenue, // _minTotalProceeds
         ],
       });
     } catch (err) {
@@ -218,7 +211,7 @@ export function MarketV2SellInterface({
       }
 
       // Refresh data
-      refetchEstimatedRevenue();
+      refetchOptionData();
 
       // Reset after delay
       setTimeout(() => {
@@ -232,7 +225,7 @@ export function MarketV2SellInterface({
     lastProcessedHash,
     toast,
     onSellComplete,
-    refetchEstimatedRevenue,
+    refetchOptionData,
   ]);
 
   // Handle errors
@@ -477,7 +470,7 @@ export function MarketV2SellInterface({
                   <span className="font-medium">
                     {estimatedRevenue && sellAmount
                       ? formatPrice(
-                          (((estimatedRevenue * BigInt(1e18)) /
+                          ((((estimatedRevenue as bigint) * BigInt(1e18)) /
                             BigInt(
                               Math.floor(
                                 parseFloat(sellAmount) * Math.pow(10, 18)

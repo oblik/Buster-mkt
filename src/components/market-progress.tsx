@@ -12,7 +12,7 @@ function formatTokenAmount(amount: bigint, decimals: number = 18): string {
 }
 
 interface MarketProgressProps {
-  // V1 Binary options (backward compatibility)
+  // V1 Binary options (backward compatibility)//
   optionA?: string;
   optionB?: string;
   totalOptionAShares?: bigint;

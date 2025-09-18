@@ -7,6 +7,6 @@ interface MarketListProps {
 }
 
 export function MarketList({ filter }: MarketListProps) {
-  // Delegate to the unified component that handles both V1 and V2 markets
+  // Delegate to the unified component that handles both V1 and V2 markets//
   return <UnifiedMarketList filter={filter} />;
 }

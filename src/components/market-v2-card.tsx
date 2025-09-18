@@ -32,7 +32,7 @@ import { MessageCircle, Gift } from "lucide-react";
 import { MarketV2, MarketOption, MarketCategory } from "@/types/types";
 import { FreeMarketClaimStatus } from "./FreeMarketClaimStatus";
 
-// Add LinkifiedText component for URL preview support
+// Add LinkifiedText component for URL preview support//
 const LinkifiedText = ({ text }: { text: string }) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
@@ -166,7 +166,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   });
 
   // Fetch user shares for this market
-  const { data: userShares } = useReadContract({
+  const { data: userShares } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getUserShares",
@@ -188,14 +188,12 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           // Get both static option data and real-time calculated price
           const [optionResponse, priceData] = await Promise.all([
             fetch(`/api/market-option?marketId=${index}&optionId=${i}`),
-            publicClient
-              .readContract({
-                address: V2contractAddress,
-                abi: V2contractAbi,
-                functionName: "calculateCurrentPrice",
-                args: [BigInt(index), BigInt(i)],
-              })
-              .catch(() => null), // Fallback if calculateCurrentPrice fails
+            (publicClient.readContract as any)({
+              address: V2contractAddress,
+              abi: V2contractAbi,
+              functionName: "calculateCurrentPrice",
+              args: [BigInt(index), BigInt(i)],
+            }).catch(() => null), // Fallback if calculateCurrentPrice fails
           ]);
 
           if (optionResponse.ok) {
@@ -338,8 +336,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   };
 
   // Check if user has shares
+  const typedUserShares = (userShares as unknown as readonly bigint[]) || [];
   const hasShares =
-    userShares && userShares.some((shares: bigint) => shares > 0n);
+    typedUserShares && typedUserShares.some((shares) => shares > 0n);
 
   return (
     <Card key={index} className="flex flex-col">

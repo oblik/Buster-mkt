@@ -9,7 +9,7 @@ interface MultiOptionProgressProps {
   className?: string;
 }
 
-// Helper function to format price (assuming 18 decimals)
+// Helper function to format price (assuming 18 decimals)//
 function formatPrice(price: bigint): string {
   const formatted = Number(price) / 1e18;
   if (formatted < 0.01) return formatted.toFixed(4);

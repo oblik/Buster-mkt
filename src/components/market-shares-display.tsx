@@ -15,7 +15,7 @@ interface MarketSharesDisplayProps {
     optionBShares: bigint;
   };
 }
-
+// Helper function to format shares amount//
 export function MarketSharesDisplay({
   market,
   sharesBalance,

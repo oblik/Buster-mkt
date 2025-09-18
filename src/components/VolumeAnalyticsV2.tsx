@@ -1,5 +1,5 @@
 "use client";
-
+//
 import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
 import { useToast } from "@/components/ui/use-toast";
@@ -117,7 +117,7 @@ export function VolumeAnalyticsV2() {
   const { data: bettingTokenAddr } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getBettingToken",
+    functionName: "bettingToken",
   });
 
   const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
@@ -141,7 +141,7 @@ export function VolumeAnalyticsV2() {
   const { data: marketCount } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketCount",
+    functionName: "marketCount",
   });
 
   useEffect(() => {
@@ -222,20 +222,7 @@ export function VolumeAnalyticsV2() {
             abi: V2contractAbi,
             functionName: "getMarketInfo",
             args: [BigInt(i)],
-          })) as readonly [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            number,
-            boolean,
-            bigint,
-            string,
-            boolean
-          ];
+          })) as unknown as readonly any[];
 
           const [question, , , , optionCount, resolved] = marketInfo;
 
@@ -344,20 +331,7 @@ export function VolumeAnalyticsV2() {
         abi: V2contractAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
-      })) as readonly [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        number,
-        boolean,
-        bigint,
-        string,
-        boolean
-      ];
+      })) as unknown as readonly any[];
 
       const [question, , , , optionCount, resolved] = marketInfo;
 

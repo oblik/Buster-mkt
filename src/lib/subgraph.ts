@@ -3,99 +3,219 @@ import { GraphQLClient } from "graphql-request";
 // Your deployed subgraph URL
 const SUBGRAPH_URL =
   process.env.NEXT_PUBLIC_SUBGRAPH_URL ||
-  "https://api.studio.thegraph.com/query/103701/bustermkt/v0.0.1";
+  "https://api.studio.thegraph.com/query/121109/policast/v0.0.1";
 
 export const subgraphClient = new GraphQLClient(SUBGRAPH_URL);
 
-// GraphQL queries for market events
-export const GET_MARKET_EVENTS = `
-  query GetMarketEvents($marketId: String!, $first: Int!, $skip: Int!, $orderBy: String!, $orderDirection: String!) {
-    sharesPurchaseds(
-      where: { marketId: $marketId }
+// GraphQL queries for V3 entities
+export const GET_MARKETS = `
+  query GetMarkets($first: Int!, $skip: Int!, $orderBy: String!, $orderDirection: String!) {
+    markets(
       first: $first
       skip: $skip
       orderBy: $orderBy
       orderDirection: $orderDirection
     ) {
       id
-      marketId
+      question
+      description
+      options
+      endTime
+      category
+      marketType
+      creator
+      resolved
+      winningOptionId
+      invalidated
+      totalVolume
+      liquidity
+      createdAt
+      freeMarketConfig {
+        id
+        maxFreeParticipants
+        tokensPerParticipant
+        totalPrizePool
+        currentFreeParticipants
+        isActive
+      }
+    }
+  }
+`;
+
+export const GET_MARKET_BY_ID = `
+  query GetMarketById($id: ID!) {
+    market(id: $id) {
+      id
+      question
+      description
+      options
+      endTime
+      category
+      marketType
+      creator
+      resolved
+      winningOptionId
+      invalidated
+      totalVolume
+      liquidity
+      createdAt
+      freeMarketConfig {
+        id
+        maxFreeParticipants
+        tokensPerParticipant
+        totalPrizePool
+        currentFreeParticipants
+        isActive
+      }
+    }
+  }
+`;
+
+export const GET_TRADES_BY_MARKET = `
+  query GetTradesByMarket($marketId: String!, $first: Int!, $skip: Int!, $orderBy: String!, $orderDirection: String!) {
+    trades(
+      where: { market: $marketId }
+      first: $first
+      skip: $skip
+      orderBy: $orderBy
+      orderDirection: $orderDirection
+    ) {
+      id
+      market {
+        id
+        question
+      }
+      optionId
       buyer
-      isOptionA
-      amount
-      blockNumber
-      blockTimestamp
-      transactionHash
+      seller
+      price
+      quantity
+      timestamp
+    }
+  }
+`;
+
+export const GET_USER_PORTFOLIO = `
+  query GetUserPortfolio($user: ID!) {
+    userPortfolio(id: $user) {
+      id
+      totalInvested
+      totalWinnings
+      unrealizedPnL
+      realizedPnL
+      tradeCount
+      updatedAt
+    }
+  }
+`;
+
+export const GET_PRICE_HISTORY = `
+  query GetPriceHistory($marketId: String!, $optionId: BigInt!, $first: Int!, $skip: Int!, $orderBy: String!, $orderDirection: String!) {
+    priceHistories(
+      where: { market: $marketId, optionId: $optionId }
+      first: $first
+      skip: $skip
+      orderBy: $orderBy
+      orderDirection: $orderDirection
+    ) {
+      id
+      market {
+        id
+      }
+      optionId
+      price
+      timestamp
+      volume
     }
   }
 `;
 
 export const GET_MARKET_ANALYTICS = `
   query GetMarketAnalytics($marketId: String!) {
-    marketCreateds(
-      where: { marketId: $marketId }
-      first: 1
-    ) {
+    sharesPurchaseds(where: { market: $marketId }, first: 1000, orderBy: "blockNumber", orderDirection: "asc") {
       id
-      marketId
-      question
-      optionA
-      optionB
-      endTime
-      blockNumber
-      blockTimestamp
-    }
-    sharesPurchaseds(
-      where: { marketId: $marketId }
-      orderBy: blockTimestamp
-      orderDirection: desc
-      first: 1000
-    ) {
-      id
-      marketId
+      market {
+        id
+      }
+      optionId
       buyer
-      isOptionA
+      price
       amount
-      blockTimestamp
-      transactionHash
-    }
-  }
-`;
-
-export const GET_MARKET_RESOLVED = `
-  query GetMarketResolved($marketId: String!) {
-    marketResolveds(
-      where: { marketId: $marketId }
-      first: 1
-    ) {
-      id
-      marketId
-      outcome
       blockNumber
       blockTimestamp
+      isOptionA
+    }
+    marketCreateds(where: { market: $marketId }) {
+      id
+      market {
+        id
+      }
+      creator
+      timestamp
     }
   }
 `;
 
-export interface SharesPurchased {
+export interface Market {
   id: string;
-  marketId: string;
-  buyer: string;
-  isOptionA: boolean;
-  amount: string;
-  blockNumber: string;
-  blockTimestamp: string;
-  transactionHash: string;
+  question: string;
+  description: string;
+  options: string[];
+  endTime: string;
+  category: string;
+  marketType: string;
+  creator: string;
+  resolved: boolean;
+  winningOptionId?: string;
+  invalidated: boolean;
+  totalVolume: string;
+  liquidity: string;
+  createdAt: string;
+  freeMarketConfig?: FreeMarketConfig;
 }
 
-export interface MarketCreated {
+export interface FreeMarketConfig {
   id: string;
-  marketId: string;
-  question: string;
-  optionA: string;
-  optionB: string;
-  endTime: string;
-  blockNumber: string;
-  blockTimestamp: string;
+  maxFreeParticipants: string;
+  tokensPerParticipant: string;
+  totalPrizePool: string;
+  currentFreeParticipants: string;
+  isActive: boolean;
+}
+
+export interface Trade {
+  id: string;
+  market: {
+    id: string;
+    question: string;
+  };
+  optionId: string;
+  buyer: string;
+  seller?: string;
+  price: string;
+  quantity: string;
+  timestamp: string;
+}
+
+export interface UserPortfolio {
+  id: string;
+  totalInvested: string;
+  totalWinnings: string;
+  unrealizedPnL: string;
+  realizedPnL: string;
+  tradeCount: string;
+  updatedAt: string;
+}
+
+export interface PriceHistory {
+  id: string;
+  market: {
+    id: string;
+  };
+  optionId: string;
+  price: string;
+  timestamp: string;
+  volume: string;
 }
 
 export interface MarketResolved {
@@ -107,6 +227,6 @@ export interface MarketResolved {
 }
 
 export interface MarketAnalyticsData {
-  marketCreateds: MarketCreated[];
-  sharesPurchaseds: SharesPurchased[];
+  marketCreateds: any[];
+  sharesPurchaseds: any[];
 }

@@ -36,7 +36,7 @@ interface OptionPosition {
   percentageHeld: number;
   isWinning?: boolean;
 }
-
+//
 interface MarketPosition {
   marketId: number;
   marketName: string;
@@ -89,7 +89,7 @@ export function MultiOptionPositions() {
   const { data: bettingTokenAddr } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getBettingToken",
+    functionName: "bettingToken",
   });
 
   const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
@@ -113,7 +113,7 @@ export function MultiOptionPositions() {
   const { data: marketCount } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketCount",
+    functionName: "marketCount",
   });
 
   useEffect(() => {
@@ -150,25 +150,12 @@ export function MultiOptionPositions() {
       for (let marketId = 0; marketId < count; marketId++) {
         try {
           // Get market info
-          const marketInfo = (await publicClient.readContract({
+          const marketInfo = (await (publicClient.readContract as any)({
             address: V2contractAddress,
             abi: V2contractAbi,
             functionName: "getMarketInfo",
             args: [BigInt(marketId)],
-          })) as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            number,
-            boolean,
-            bigint,
-            string,
-            boolean
-          ];
+          })) as unknown as readonly any[];
 
           const [
             question,
@@ -182,15 +169,15 @@ export function MultiOptionPositions() {
             invalidated,
             winningOptionId,
             creator,
-          ] = marketInfo;
+          ] = marketInfo as any;
 
           // Get user shares for this market
-          const userShares = (await publicClient.readContract({
+          const userShares = (await (publicClient.readContract as any)({
             address: V2contractAddress,
             abi: V2contractAbi,
             functionName: "getUserShares",
             args: [BigInt(marketId), address],
-          })) as bigint[];
+          })) as unknown as readonly bigint[];
 
           // Check if user has any shares in this market
           const hasShares = userShares.some((shares) => shares > 0n);
@@ -206,14 +193,15 @@ export function MultiOptionPositions() {
             if (shares === 0n) continue;
 
             // Get option info
-            const optionInfo = (await publicClient.readContract({
+            const optionInfo = (await (publicClient.readContract as any)({
               address: V2contractAddress,
               abi: V2contractAbi,
               functionName: "getMarketOption",
               args: [BigInt(marketId), BigInt(optionId)],
-            })) as [string, string, bigint, bigint, bigint, boolean];
+            })) as unknown as readonly any[];
 
-            const [optionName, , totalShares, , currentPrice] = optionInfo;
+            const [optionName, , totalShares, , currentPrice] =
+              optionInfo as any;
 
             // Calculate position metrics
             const marketValue =

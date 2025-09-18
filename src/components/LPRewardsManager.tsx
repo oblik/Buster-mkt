@@ -30,45 +30,55 @@ export function LPRewardsManager() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
 
-  // Get user's LP rewards earned globally
-  const { data: globalLPRewards } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "lpRewardsEarned",
-    args: [address as `0x${string}`],
-    query: { enabled: isConnected && !!address },
-  });
+  // Get user's LP rewards earned globally//
+  // NOTE: lpRewardsEarned function not available in current ABI
+  // const { data: globalLPRewards } = useReadContract({
+  //   address: V2contractAddress,
+  //   abi: V2contractAbi,
+  //   functionName: "lpRewardsEarned",
+  //   args: [address as `0x${string}`],
+  //   query: { enabled: isConnected && !!address },
+  // });
+  const globalLPRewards = 0n; // Placeholder
 
   const handleClaimLPRewards = async () => {
-    if (!marketId) {
-      toast({
-        title: "Missing Market ID",
-        description: "Please enter a market ID to claim LP rewards.",
-        variant: "destructive",
-      });
-      return;
-    }
+    // NOTE: claimLPRewards function not available in current ABI
+    toast({
+      title: "Feature Not Available",
+      description: "LP rewards claiming is not currently available.",
+      variant: "destructive",
+    });
+    return;
 
-    try {
-      toast({
-        title: "Transaction Submitted",
-        description: "Claiming LP rewards...",
-      });
+    // if (!marketId) {
+    //   toast({
+    //     title: "Missing Market ID",
+    //     description: "Please enter a market ID to claim LP rewards.",
+    //     variant: "destructive",
+    //   });
+    //   return;
+    // }
 
-      await writeContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "claimLPRewards",
-        args: [BigInt(marketId)],
-      });
-    } catch (error: any) {
-      console.error("Error claiming LP rewards:", error);
-      toast({
-        title: "Transaction Failed",
-        description: error?.shortMessage || "Failed to claim LP rewards.",
-        variant: "destructive",
-      });
-    }
+    // try {
+    //   toast({
+    //     title: "Transaction Submitted",
+    //     description: "Claiming LP rewards...",
+    //   });
+
+    //   await writeContract({
+    //     address: V2contractAddress,
+    //     abi: V2contractAbi,
+    //     functionName: "claimLPRewards",
+    //     args: [BigInt(marketId)],
+    //   });
+    // } catch (error: any) {
+    //   console.error("Error claiming LP rewards:", error);
+    //   toast({
+    //     title: "Transaction Failed",
+    //     description: error?.shortMessage || "Failed to claim LP rewards.",
+    //     variant: "destructive",
+    //   });
+    // }
   };
 
   const formatAmount = (amount: bigint | undefined) => {

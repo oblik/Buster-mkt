@@ -33,7 +33,7 @@ export function FreeTokenClaimButton({
     writeContractAsync,
     isPending: isWritePending,
     error: writeError,
-  } = useWriteContract();
+  } = (useWriteContract as any)();
 
   const {
     isLoading: isConfirming,
@@ -44,7 +44,9 @@ export function FreeTokenClaimButton({
   const [hasClaimed, setHasClaimed] = useState(false);
 
   // Check if user has already claimed free tokens
-  const { data: claimStatus, refetch: refetchClaimStatus } = useReadContract({
+  const { data: claimStatus, refetch: refetchClaimStatus } = (
+    useReadContract as any
+  )({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "hasUserClaimedFreeTokens",
@@ -55,8 +57,8 @@ export function FreeTokenClaimButton({
     },
   });
 
-  // Get free market info (slots remaining, tokens per user, etc.)
-  const { data: freeMarketInfo } = useReadContract({
+  // Get free market info (slots remaining, tokens per user, etc.)//
+  const { data: freeMarketInfo } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getFreeMarketInfo",
@@ -67,7 +69,7 @@ export function FreeTokenClaimButton({
   });
 
   // Check if this is actually a free market
-  const { data: marketInfo } = useReadContract({
+  const { data: marketInfo } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketInfo",
@@ -78,13 +80,17 @@ export function FreeTokenClaimButton({
   });
 
   const isLoading = isWritePending || isConfirming;
-  const hasUserClaimed = claimStatus ? claimStatus[0] : false;
-  const tokensReceived = claimStatus ? claimStatus[1] : 0n;
+  const _claimStatus = claimStatus as [boolean, bigint] | undefined;
+  const hasUserClaimed = _claimStatus ? _claimStatus[0] : false;
+  const tokensReceived = _claimStatus ? _claimStatus[1] : 0n;
 
   // Extract free market info
-  const maxParticipants = freeMarketInfo ? freeMarketInfo[0] : 0n;
-  const tokensPerParticipant = freeMarketInfo ? freeMarketInfo[1] : 0n;
-  const currentParticipants = freeMarketInfo ? freeMarketInfo[2] : 0n;
+  const _freeMarketInfo = freeMarketInfo as
+    | [bigint, bigint, bigint]
+    | undefined;
+  const maxParticipants = _freeMarketInfo ? _freeMarketInfo[0] : 0n;
+  const tokensPerParticipant = _freeMarketInfo ? _freeMarketInfo[1] : 0n;
+  const currentParticipants = _freeMarketInfo ? _freeMarketInfo[2] : 0n;
   const slotsRemaining = maxParticipants - currentParticipants;
 
   // Check if market is free entry (marketType = 1)

@@ -3,10 +3,16 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   useAccount,
-  useReadContract,
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import {
+  subgraphClient,
+  GET_MARKETS,
+  GET_MARKET_BY_ID,
+  Market as MarketEntity,
+} from "@/lib/subgraph";
 import { useToast } from "@/components/ui/use-toast";
 import {
   V2contractAddress,
@@ -70,11 +76,24 @@ export function MarketResolver() {
     "all" | "ready" | "resolved" | "disputed"
   >("ready");
 
-  const { data: marketCount } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getMarketCount",
-    query: { enabled: isConnected },
+  // Markets are loaded from the subgraph for performance
+  const {
+    data: marketsData,
+    isLoading: isLoadingMarkets,
+    refetch: refetchMarkets,
+  } = useQuery({
+    queryKey: ["marketsList"],
+    queryFn: async () => {
+      const resp = (await subgraphClient.request(GET_MARKETS, {
+        first: 200,
+        skip: 0,
+        orderBy: "totalVolume",
+        orderDirection: "desc",
+      })) as any;
+      return resp.markets as MarketEntity[];
+    },
+    enabled: isConnected,
+    refetchInterval: 30000,
   });
 
   const { writeContract, data: hash, error, isPending } = useWriteContract();
@@ -84,122 +103,84 @@ export function MarketResolver() {
       hash,
     });
 
-  const fetchMarkets = useCallback(async () => {
-    if (!marketCount || !isConnected) return;
+  // Map subgraph markets to local MarketInfo shape
+  useEffect(() => {
+    const mapMarkets = (items: MarketEntity[] | undefined) => {
+      if (!items) return;
+      setIsLoading(true);
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const mapped: MarketInfo[] = items.map((m) => {
+          const endTime = BigInt(Number(m.endTime || 0));
+          const optionCount = BigInt(m.options ? m.options.length : 0);
+          const resolved = !!m.resolved;
+          const canResolve = Number(endTime) <= now && !resolved;
 
-    setIsLoading(true);
-    try {
-      const count = Number(marketCount);
-      const marketPromises: Promise<MarketInfo | null>[] = [];
+          return {
+            marketId: Number(m.id),
+            question: m.question,
+            description: m.description || "",
+            endTime,
+            category: Number(m.category || 0),
+            optionCount,
+            resolved,
+            disputed: false,
+            winningOptionId: m.winningOptionId
+              ? BigInt(Number(m.winningOptionId))
+              : 0n,
+            creator: m.creator,
+            options: m.options || [],
+            totalShares: Array((m.options || []).length).fill(0n),
+            canResolve,
+            earlyResolutionAllowed: false,
+          } as MarketInfo;
+        });
 
-      for (let i = 0; i < count; i++) {
-        marketPromises.push(fetchMarketInfo(i));
+        setMarkets(mapped);
+      } catch (err) {
+        console.error("Error mapping markets:", err);
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      const results = await Promise.all(marketPromises);
-      const validMarkets = results.filter(
-        (market): market is MarketInfo => market !== null
-      );
+    mapMarkets((marketsData as any) || undefined);
+  }, [marketsData]);
 
-      setMarkets(validMarkets);
-    } catch (error) {
-      console.error("Error fetching markets:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load markets.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [marketCount, isConnected, toast]);
-
-  const fetchMarketInfo = async (
-    marketId: number
-  ): Promise<MarketInfo | null> => {
-    try {
-      // Get market info
-      const marketInfo = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketInfo",
-        args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        number,
-        boolean,
-        bigint,
-        string,
-        boolean
-      ];
-
-      const [
-        question,
-        description,
-        endTime,
-        category,
-        optionCount,
-        resolved,
-        disputed,
-        marketType,
-        invalidated,
-        winningOptionId,
-        creator,
-        earlyResolutionAllowed,
-      ] = marketInfo;
-
-      // Get option details
-      const options: string[] = [];
-      const totalShares: bigint[] = [];
-
-      for (let optionId = 0; optionId < Number(optionCount); optionId++) {
-        const optionInfo = (await publicClient.readContract({
-          address: V2contractAddress,
-          abi: V2contractAbi,
-          functionName: "getMarketOption",
-          args: [BigInt(marketId), BigInt(optionId)],
-        })) as [string, string, bigint, bigint, bigint, boolean];
-
-        options.push(optionInfo[0]);
-        totalShares.push(optionInfo[2]);
-      }
-
-      const now = Math.floor(Date.now() / 1000);
-      const canResolve = Number(endTime) <= now && !resolved;
-
-      return {
-        marketId,
-        question,
-        description,
-        endTime,
-        category,
-        optionCount,
-        resolved,
-        disputed,
-        winningOptionId,
-        creator,
-        options,
-        totalShares,
-        canResolve,
-        earlyResolutionAllowed,
-      };
-    } catch (error) {
-      console.error(`Error fetching market ${marketId}:`, error);
-      return null;
-    }
-  };
+  // Details for a single selected market can be fetched from the subgraph when needed
+  const { data: selectedMarketEntity, refetch: refetchSelectedMarket } =
+    useQuery({
+      queryKey: ["market", selectedMarket?.marketId ?? null],
+      queryFn: async () => {
+        if (!selectedMarket) return null;
+        const resp = (await subgraphClient.request(GET_MARKET_BY_ID, {
+          id: selectedMarket.marketId.toString(),
+        })) as any;
+        return resp.market as MarketEntity | null;
+      },
+      enabled: !!selectedMarket,
+    });
 
   useEffect(() => {
-    if (isConnected && marketCount) {
-      fetchMarkets();
-    }
-  }, [isConnected, marketCount, fetchMarkets]);
+    if (!selectedMarketEntity) return;
+    // merge details (options array already present) and update totalShares placeholder
+    setSelectedMarket((prev) => {
+      if (!prev) return prev;
+      const options = selectedMarketEntity.options || prev.options;
+      return {
+        ...prev,
+        options,
+        totalShares: Array(options.length).fill(0n),
+        winningOptionId: selectedMarketEntity.winningOptionId
+          ? BigInt(Number(selectedMarketEntity.winningOptionId))
+          : prev.winningOptionId,
+      };
+    });
+  }, [selectedMarketEntity]);
+
+  useEffect(() => {
+    // markets are loaded via React Query; no on-chain count/fetch loop required
+  }, [isConnected]);
 
   const handleResolveMarket = async () => {
     if (!selectedMarket || !winningOptionId || !hasResolverAccess) return;
@@ -223,7 +204,7 @@ export function MarketResolver() {
     }
 
     try {
-      await writeContract({
+      await (writeContract as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "resolveMarket",
@@ -246,7 +227,7 @@ export function MarketResolver() {
     if (!selectedMarket || !disputeReason.trim() || !hasResolverAccess) return;
 
     try {
-      await writeContract({
+      await (writeContract as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "disputeMarket",

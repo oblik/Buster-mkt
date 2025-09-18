@@ -62,7 +62,7 @@ const ROLE_INFO = {
     color: "bg-red-100 text-red-700",
   },
 };
-
+// Component for managing user roles and permissions//
 export function AdminRoleManager() {
   const { isConnected } = useAccount();
   const { isOwner } = useUserRoles();

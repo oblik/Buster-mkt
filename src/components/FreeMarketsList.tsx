@@ -21,7 +21,7 @@ interface FreeMarket {
   tokensReceived: bigint;
 }
 
-// Format price with proper decimals
+// Format price with proper decimals//
 function formatPrice(price: bigint, decimals: number = 18): string {
   const formatted = Number(price) / Math.pow(10, decimals);
   if (formatted < 0.01) return formatted.toFixed(4);

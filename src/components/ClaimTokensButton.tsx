@@ -15,7 +15,7 @@ import { tokenAddress, tokenAbi } from "@/constants/contract";
 interface ClaimTokensButtonProps {
   onClaimComplete?: () => void;
 }
-
+// Button to claim free tokens for new users//
 export function ClaimTokensButton({ onClaimComplete }: ClaimTokensButtonProps) {
   const { address } = useAccount();
   const { toast } = useToast();

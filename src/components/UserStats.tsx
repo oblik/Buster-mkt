@@ -28,7 +28,7 @@ interface Vote {
   amount: bigint;
   timestamp: bigint;
   version: "v1" | "v2";
-  // V2 specific fields
+  // V2 specific fields//
   optionId?: number;
 }
 
@@ -122,7 +122,7 @@ export function UserStats() {
   const { data: v2Portfolio } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getUserPortfolio",
+    functionName: "userPortfolios",
     args: [accountAddress!],
     query: { enabled: !!accountAddress },
   });

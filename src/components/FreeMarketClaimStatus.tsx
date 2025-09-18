@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   useAccount,
   useReadContract,
@@ -11,8 +12,8 @@ import { V2contractAddress, V2contractAbi } from "@/constants/contract";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Gift, Users, Clock, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useToast } from "@/components/ui/use-toast";
+import { useMarketData } from "@/hooks/useSubgraphData";
 
 interface FreeMarketClaimStatusProps {
   marketId: number;
@@ -41,7 +42,7 @@ export function FreeMarketClaimStatus({
     data: claimTxHash,
     error: claimError,
     isPending: isClaimPending,
-  } = useWriteContract();
+  } = (useWriteContract as any)();
 
   // Wait for claim transaction confirmation
   const { isLoading: isClaimConfirming, isSuccess: isClaimConfirmed } =
@@ -50,7 +51,7 @@ export function FreeMarketClaimStatus({
     });
 
   // Check if user has claimed free tokens
-  const { data: claimStatus } = useReadContract({
+  const { data: claimStatus } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "hasUserClaimedFreeTokens",
@@ -61,42 +62,14 @@ export function FreeMarketClaimStatus({
     },
   });
 
-  // Get free market info
-  const { data: freeMarketInfo } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getFreeMarketInfo",
-    args: [BigInt(marketId)],
-    query: {
-      refetchInterval: 15000,
-    },
-  });
+  // Get market data from subgraph
+  const { market, isLoading: isLoadingMarket } = useMarketData(marketId);
 
-  // Check if this is a free market
-  const { data: marketInfo } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getMarketInfo",
-    args: [BigInt(marketId)],
-    query: {
-      refetchInterval: 30000, // Check every 30 seconds for market type
-    },
-  });
-
-  // Handle claim success
-  useEffect(() => {
-    if (isClaimConfirmed && !hasShownSuccessToast && freeMarketInfo) {
-      setHasShownSuccessToast(true);
-      const tokensPerParticipant = freeMarketInfo[1];
-      toast({
-        title: "Tokens Claimed Successfully! 🎉",
-        description: `You've claimed ${formatPrice(
-          tokensPerParticipant,
-          18
-        )} tokens for this free market.`,
-      });
-    }
-  }, [isClaimConfirmed, hasShownSuccessToast, freeMarketInfo, toast]);
+  // Compute free market config values if market is available
+  const freeMarketConfig = market?.freeMarketConfig;
+  const tokensPerParticipant = freeMarketConfig
+    ? BigInt(freeMarketConfig.tokensPerParticipant)
+    : 0n;
 
   // Handle claim error
   useEffect(() => {
@@ -116,26 +89,47 @@ export function FreeMarketClaimStatus({
     }
   }, [isClaimPending]);
 
+  // Handle claim success
+  useEffect(() => {
+    if (
+      isClaimConfirmed &&
+      !hasShownSuccessToast &&
+      freeMarketConfig &&
+      tokensPerParticipant
+    ) {
+      setHasShownSuccessToast(true);
+      toast({
+        title: "Tokens Claimed Successfully! 🎉",
+        description: `You've claimed ${formatPrice(
+          tokensPerParticipant,
+          18
+        )} tokens for this free market.`,
+      });
+    }
+  }, [
+    isClaimConfirmed,
+    hasShownSuccessToast,
+    freeMarketConfig,
+    tokensPerParticipant,
+    toast,
+  ]);
+
   // Early returns after all hooks
-  if (!address || !freeMarketInfo || !marketInfo) {
+  if (!address || !market || isLoadingMarket) {
     return null;
   }
 
-  // Check if market is free entry (marketType = 1)
-  const isFreeMarket =
-    marketInfo.length > 7 &&
-    typeof marketInfo[7] === "number" &&
-    marketInfo[7] === 1;
-  if (!isFreeMarket) {
+  // Check if market is free entry
+  const isFreeMarket = market.marketType === "FREE";
+  if (!isFreeMarket || !market.freeMarketConfig) {
     return null;
   }
 
   const hasUserClaimed = claimStatus ? claimStatus[0] : false;
   const tokensReceived = claimStatus ? claimStatus[1] : 0n;
 
-  const maxParticipants = freeMarketInfo[0];
-  const tokensPerParticipant = freeMarketInfo[1];
-  const currentParticipants = freeMarketInfo[2];
+  const maxParticipants = BigInt(freeMarketConfig.maxFreeParticipants);
+  const currentParticipants = BigInt(freeMarketConfig.currentFreeParticipants);
   const slotsRemaining = maxParticipants - currentParticipants;
 
   // Handle claiming free tokens

@@ -16,7 +16,7 @@ import { useMarketAnalytics } from "@/hooks/useMarketAnalytics";
 interface MarketChartProps {
   marketId: string;
   market?: {
-    // V1 Binary options
+    // V1 Binary options//
     optionA?: string;
     optionB?: string;
     // V2 Multi-options

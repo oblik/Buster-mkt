@@ -42,7 +42,7 @@ type BuyingStep =
   | "purchaseSuccess";
 
 const MAX_BET = 50000000000000000000000000000000;
-const MAX_SHARES = 1000; // Maximum number of shares a user can buy
+const MAX_SHARES = 1000;
 
 // Convert amount to token units (handles custom decimals)
 function toUnits(amount: string, decimals: number): bigint {
@@ -232,25 +232,14 @@ export function MarketV2BuyInterface({
   });
 
   // Fetch real-time AMM cost estimation for purchase amount with fresher data
-  const { data: estimatedCost, refetch: refetchEstimatedCost } =
-    useReadContract({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "calculateAMMBuyCost",
-      args: [
-        BigInt(marketId),
-        BigInt(selectedOptionId || 0),
-        toUnits(amount || "0", tokenDecimals || 18),
-      ],
-      query: {
-        enabled:
-          selectedOptionId !== null &&
-          amount !== "" &&
-          amount !== null &&
-          parseFloat(amount || "0") > 0,
-        refetchInterval: 1500, // Refresh cost estimation every 1.5 seconds
-      },
-    });
+  // Note: calculateAMMBuyCost function not available in current ABI
+  // Using current price from optionData for estimation
+  const estimatedCost =
+    optionData && amount
+      ? ((optionData[4] as bigint) *
+          toUnits(amount || "0", tokenDecimals || 18)) /
+        BigInt(10 ** 18)
+      : 0n;
 
   // Fetch market info for validation
   const { data: marketInfo } = useReadContract({
@@ -258,18 +247,6 @@ export function MarketV2BuyInterface({
     abi: V2contractAbi,
     functionName: "getMarketInfo",
     args: [BigInt(marketId)],
-  });
-
-  // Fetch user's current shares for all options in this market
-  const { data: userShares } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getUserShares",
-    args: [BigInt(marketId), accountAddress as `0x${string}`],
-    query: {
-      enabled: !!accountAddress,
-      refetchInterval: 3000, // Refresh every 3 seconds
-    },
   });
 
   // Calculate slippage protection (10% slippage tolerance)
@@ -285,7 +262,13 @@ export function MarketV2BuyInterface({
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "buyShares",
-        args: [BigInt(marketId), BigInt(0), BigInt(1), BigInt(1000000)], // Try to buy 1 share of option 0 with max price 1000000
+        args: [
+          BigInt(marketId),
+          BigInt(0),
+          BigInt(1),
+          BigInt(1000000),
+          BigInt(1000000),
+        ], // Try to buy 1 share of option 0 with max price and max total cost 1000000
         account: "0x0000000000000000000000000000000000000001", // Dummy account
       });
       setIsValidated(true); // If no error, market is validated
@@ -326,7 +309,7 @@ export function MarketV2BuyInterface({
         estimatedCost ||
         (amountInUnits * (optionData?.[4] || 0n)) / BigInt(1e18);
 
-      if (requiredBalance > userBalance) {
+      if ((requiredBalance as bigint) > ((userBalance as bigint) || 0n)) {
         throw new Error(
           `Insufficient balance. Total cost: ${formatPrice(
             requiredBalance,
@@ -359,6 +342,7 @@ export function MarketV2BuyInterface({
           BigInt(selectedOptionId),
           amountInUnits,
           maxPricePerShare,
+          requiredBalance, // _maxTotalCost
         ],
       });
     } catch (err: unknown) {
@@ -459,7 +443,7 @@ export function MarketV2BuyInterface({
         estimatedCost ||
         (amountInUnits * (optionData?.[4] || 0n)) / BigInt(1e18);
 
-      if (requiredBalance > userBalance) {
+      if ((requiredBalance as bigint) > ((userBalance as bigint) || 0n)) {
         throw new Error(
           `Insufficient balance. Total cost: ${formatPrice(
             requiredBalance,
@@ -475,7 +459,8 @@ export function MarketV2BuyInterface({
       const requiredApproval =
         estimatedCost ||
         (amountInUnits * (optionData?.[4] || 0n)) / BigInt(1e18);
-      const needsApproval = requiredApproval > (userAllowance || 0n);
+      const needsApproval =
+        (requiredApproval as bigint) > ((userAllowance as bigint) || 0n);
 
       console.log("=== V2 SEQUENTIAL PURCHASE ===");
       console.log("Amount in units:", amountInUnits.toString());
@@ -515,6 +500,7 @@ export function MarketV2BuyInterface({
             BigInt(selectedOptionId),
             amountInUnits,
             maxPricePerShare,
+            requiredApproval, // _maxTotalCost
           ],
         });
       }
@@ -637,7 +623,7 @@ export function MarketV2BuyInterface({
 
       const batchCalls = [
         {
-          to: tokenAddress,
+          to: tokenAddress as `0x${string}`,
           data: encodeFunctionData({
             abi: tokenAbi,
             functionName: "approve",
@@ -645,7 +631,7 @@ export function MarketV2BuyInterface({
           }),
         },
         {
-          to: V2contractAddress,
+          to: V2contractAddress as `0x${string}`,
           data: encodeFunctionData({
             abi: V2contractAbi,
             functionName: "buyShares",
@@ -654,6 +640,7 @@ export function MarketV2BuyInterface({
               BigInt(selectedOptionId),
               amountInUnits,
               maxPricePerShare,
+              requiredBalance, // _maxTotalCost
             ],
           }),
         },
@@ -726,10 +713,6 @@ export function MarketV2BuyInterface({
     console.log("Token decimals:", tokenDecimals);
     console.log("User balance:", userBalance?.toString());
     console.log("User allowance:", userAllowance?.toString());
-    console.log(
-      "User shares:",
-      userShares?.map((share) => share.toString())
-    );
     console.log("Option data:", optionData);
     console.log("Market info:", marketInfo);
 
@@ -747,7 +730,6 @@ export function MarketV2BuyInterface({
     tokenDecimals,
     userBalance,
     userAllowance,
-    userShares,
     optionData,
     marketInfo,
     toast,
@@ -766,21 +748,20 @@ export function MarketV2BuyInterface({
       return;
     }
 
-    // Check if user already has too many shares for this option
-    if (userShares && selectedOptionId !== null) {
-      const currentShares =
-        Number(userShares[selectedOptionId] || 0n) / Math.pow(10, 18);
-      const newTotalShares = currentShares + parseFloat(amount);
-
-      if (newTotalShares > MAX_SHARES) {
-        setError(
-          `Cannot have more than ${MAX_SHARES} shares per option. You currently have ${currentShares} shares. Maximum additional purchase: ${
-            MAX_SHARES - currentShares
-          } shares.`
-        );
-        return;
-      }
-    }
+    // Skip user shares check for now since getUserShares function doesn't exist
+    // if (userShares && selectedOptionId !== null) {
+    //   const currentShares =
+    //     Number(userShares[selectedOptionId] || 0n) / Math.pow(10, 18);
+    //   const newTotalShares = currentShares + parseFloat(amount);
+    //   if (newTotalShares > MAX_SHARES) {
+    //     setError(
+    //       `Cannot have more than ${MAX_SHARES} shares per option. You currently have ${currentShares} shares. Maximum additional purchase: ${
+    //         MAX_SHARES - currentShares
+    //       } shares.`
+    //     );
+    //     return;
+    //   }
+    // }
 
     // Check balance before proceeding
     if (!userBalance || !tokenDecimals) {
@@ -840,7 +821,6 @@ export function MarketV2BuyInterface({
   }, [
     amount,
     selectedOptionId,
-    userShares,
     userBalance,
     tokenDecimals,
     tokenSymbol,
@@ -1144,6 +1124,7 @@ export function MarketV2BuyInterface({
             BigInt(selectedOptionId!),
             amountInUnits,
             maxPricePerShare,
+            estimatedCost || (amountInUnits * avgPricePerShare) / BigInt(1e18), // _maxTotalCost
           ],
         });
       } else {
@@ -1158,7 +1139,6 @@ export function MarketV2BuyInterface({
         setAmount("");
         setIsBuying(false);
         refetchOptionData();
-        refetchEstimatedCost();
       }
     }
   }, [
@@ -1177,7 +1157,6 @@ export function MarketV2BuyInterface({
     market.options,
     toast,
     refetchOptionData,
-    refetchEstimatedCost,
   ]);
 
   // Update container height
@@ -1365,22 +1344,22 @@ export function MarketV2BuyInterface({
                         }
 
                         // Check combined shares limit (current + new)
-                        if (userShares && selectedOptionId !== null) {
-                          const currentShares =
-                            Number(userShares[selectedOptionId] || 0n) /
-                            Math.pow(10, 18);
-                          const newTotal = currentShares + numValue;
-
-                          if (newTotal > MAX_SHARES) {
-                            setError(
-                              `Total shares cannot exceed ${MAX_SHARES}. You have ${currentShares} shares. Max additional: ${
-                                MAX_SHARES - currentShares
-                              }`
-                            );
-                            setAmount(value);
-                            return;
-                          }
-                        }
+                        // Skip user shares check for now since getUserShares function doesn't exist
+                        // if (userShares && selectedOptionId !== null) {
+                        //   const currentShares =
+                        //     Number(userShares[selectedOptionId] || 0n) /
+                        //     Math.pow(10, 18);
+                        //   const newTotal = currentShares + numValue;
+                        //   if (newTotal > MAX_SHARES) {
+                        //     setError(
+                        //       `Total shares cannot exceed ${MAX_SHARES}. You have ${currentShares} shares. Max additional: ${
+                        //         MAX_SHARES - currentShares
+                        //       }`
+                        //     );
+                        //     setAmount(value);
+                        //     return;
+                        //   }
+                        // }
 
                         setError(null);
                         setAmount(value);
@@ -1410,7 +1389,8 @@ export function MarketV2BuyInterface({
                             {MAX_SHARES} shares
                           </span>
                         </div>
-                        {userShares && selectedOptionId !== null && (
+                        {/* Skip user shares display for now since getUserShares function doesn't exist */}
+                        {/* {userShares && selectedOptionId !== null && (
                           <div className="flex justify-between">
                             <span className="text-gray-600 dark:text-gray-400">
                               Current shares:
@@ -1422,7 +1402,7 @@ export function MarketV2BuyInterface({
                               )}
                             </span>
                           </div>
-                        )}
+                        )} */}
                       </div>
                     </div>
                   )}

@@ -37,7 +37,7 @@ interface MarketBuyInterfaceProps {
     totalOptionBShares: bigint;
   };
 }
-
+//
 type BuyingStep =
   | "initial"
   | "amount"
@@ -729,8 +729,19 @@ export function MarketBuyInterface({
       }
 
       // Try the batch transaction
+      // Ensure addresses are typed as `0x${string}` so the sendCalls typing is satisfied.
+      const tokenAddr = tokenAddress as `0x${string}`;
+      const contractAddr = contractAddress as `0x${string}`;
+
+      // Rebuild a typed calls array so `to` is `0x${string}` and `data` is `0x${string}`
+      const typedBatchCalls: { to: `0x${string}`; data: `0x${string}` }[] =
+        batchCalls.map((c) => ({
+          to: c.to as `0x${string}`,
+          data: c.data as `0x${string}`,
+        }));
+
       sendCalls({
-        calls: batchCalls,
+        calls: typedBatchCalls,
       });
     } catch (error: unknown) {
       console.error("Purchase error:", error);

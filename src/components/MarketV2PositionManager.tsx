@@ -43,7 +43,8 @@ interface UserPosition {
   unrealizedPnLPercent: number;
 }
 
-// Format price with proper decimals
+// Format price with proper decimals//
+
 function formatPrice(price: bigint, decimals: number = 18): string {
   const formatted = Number(price) / Math.pow(10, decimals);
   if (formatted === 0) return "0.0000";
@@ -87,15 +88,59 @@ export function MarketV2PositionManager({
     functionName: "symbol",
   });
 
-  // Fetch user shares for this market
-  const { data: userShares, refetch: refetchShares } = useReadContract({
+  // Fetch user shares for each option in this market
+  const userShares0Query = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getUserShares",
-    args: [BigInt(marketId), accountAddress as `0x${string}`],
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 0n, accountAddress as `0x${string}`],
     query: {
       enabled: !!accountAddress,
-      refetchInterval: 10000, // Refetch every 10 seconds
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares1Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 1n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares2Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 2n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares3Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 3n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares4Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 4n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
     },
   });
 
@@ -103,7 +148,7 @@ export function MarketV2PositionManager({
   const { data: userPortfolio, refetch: refetchPortfolio } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getUserPortfolio",
+    functionName: "userPortfolios",
     args: [accountAddress as `0x${string}`],
     query: {
       enabled: !!accountAddress,
@@ -167,7 +212,16 @@ export function MarketV2PositionManager({
     },
   });
 
-  // Array of queries for easy access
+  // Array of user shares queries for easy access
+  const userSharesQueries = [
+    userShares0Query,
+    userShares1Query,
+    userShares2Query,
+    userShares3Query,
+    userShares4Query,
+  ];
+
+  // Array of option queries for easy access
   const optionQueries = [
     option0Query,
     option1Query,
@@ -178,13 +232,18 @@ export function MarketV2PositionManager({
 
   // Convert user shares data to position objects with real-time prices
   const positions: UserPosition[] = market.options.map((option, optionId) => {
-    const shares = userShares ? userShares[optionId] || 0n : 0n;
+    // Get shares from individual queries
+    const sharesQuery = userSharesQueries[optionId];
+    const shares = sharesQuery?.data ? (sharesQuery.data as bigint) : 0n;
 
     // Get real-time price from individual queries
-    const optionData = optionQueries[optionId]?.data;
-    const currentPrice = optionData
-      ? (optionData[4] as bigint)
-      : option.currentPrice || 0n;
+    const optionData = optionQueries[optionId]?.data as
+      | readonly [string, string, bigint, bigint, bigint, boolean]
+      | undefined;
+    const currentPrice =
+      optionData && optionData.length > 4
+        ? optionData[4]
+        : option.currentPrice || 0n;
 
     // Debug logging
     if (optionData) {
@@ -236,9 +295,9 @@ export function MarketV2PositionManager({
   const hasPositions = positions.some((pos) => pos.shares > 0n);
 
   // Convert shares array to object for interfaces
-  const userSharesObject = userShares
-    ? Object.fromEntries(userShares.map((shares, index) => [index, shares]))
-    : {};
+  const userSharesObject = userSharesQueries.map((query) =>
+    query?.data ? (query.data as bigint) : 0n
+  );
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -246,9 +305,9 @@ export function MarketV2PositionManager({
     try {
       // Refresh shares, portfolio data, and option data
       const refreshPromises = [
-        refetchShares(),
+        ...userSharesQueries.map((query: any) => query.refetch?.()),
         refetchPortfolio(),
-        ...optionQueries.map((query) => query.refetch?.()),
+        ...optionQueries.map((query: any) => query.refetch?.()),
       ].filter(Boolean);
 
       await Promise.all(refreshPromises);

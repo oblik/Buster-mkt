@@ -21,7 +21,7 @@ const CACHE_KEY = "vote_history_cache_v6"; // Updated for V2 support
 const CACHE_TTL = 60 * 60; // 1 hour in seconds
 const PAGE_SIZE = 50; // Votes per contract call
 
-// V1 Vote interface (legacy)
+// V1 Vote interface (legacy))
 interface Vote {
   marketId: number;
   isOptionA: boolean;
@@ -167,12 +167,16 @@ export function VoteHistory() {
   const fetchV2Trades = async (address: Address): Promise<V2Trade[]> => {
     try {
       // Get user portfolio to find trade count
-      const portfolio = (await publicClient.readContract({
+      const portfolioParams: any = {
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "getUserPortfolio",
         args: [address],
-      })) as {
+      };
+
+      const portfolio = (await (publicClient.readContract as any)(
+        portfolioParams
+      )) as {
         totalInvested: bigint;
         totalWinnings: bigint;
         unrealizedPnL: bigint;
@@ -188,12 +192,16 @@ export function VoteHistory() {
       const trades: V2Trade[] = [];
       for (let i = 0; i < tradeCount; i++) {
         try {
-          const trade = (await publicClient.readContract({
+          const tradeParams: any = {
             address: V2contractAddress,
             abi: V2contractAbi,
             functionName: "userTradeHistory",
             args: [address, BigInt(i)],
-          })) as [bigint, bigint, string, string, bigint, bigint, bigint];
+          };
+
+          const trade = (await (publicClient.readContract as any)(
+            tradeParams
+          )) as [bigint, bigint, string, string, bigint, bigint, bigint];
 
           trades.push({
             marketId: trade[0],

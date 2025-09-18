@@ -26,7 +26,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { MessageCircle } from "lucide-react";
 
-// Add LinkifiedText component for URL preview support
+// Add LinkifiedText component for URL preview support//
 const LinkifiedText = ({ text }: { text: string }) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
