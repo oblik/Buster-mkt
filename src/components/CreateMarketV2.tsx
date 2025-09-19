@@ -223,6 +223,35 @@ export function CreateMarketV2() {
     }
   };
 
+  // Pure validation used only for render-time checks (no side-effects)
+  const isFormValidNoSideEffects = (): boolean => {
+    if (!question.trim()) return false;
+    if (question.length > 200) return false;
+    if (!description.trim()) return false;
+    if (description.length > 500) return false;
+    if (options.length < 2) return false;
+    if (options.some((opt) => !opt.name.trim())) return false;
+    if (options.some((opt) => opt.name.length > 50)) return false;
+    if (options.some((opt) => opt.description.length > 100)) return false;
+    if (isNaN(parseFloat(duration)) || parseFloat(duration) < 1) return false;
+    if (
+      isNaN(parseFloat(initialLiquidity)) ||
+      parseFloat(initialLiquidity) < 100
+    )
+      return false;
+
+    if (marketType === MarketType.FREE_ENTRY) {
+      if (!maxFreeParticipants.trim() || !freeSharesPerUser.trim())
+        return false;
+      const maxParticipants = parseInt(maxFreeParticipants);
+      const tokensPerUser = parseFloat(freeSharesPerUser);
+      if (isNaN(maxParticipants) || maxParticipants < 1) return false;
+      if (isNaN(tokensPerUser) || tokensPerUser <= 0) return false;
+    }
+
+    return true;
+  };
+
   const removeOption = (index: number) => {
     if (options.length > 2) {
       setOptions(options.filter((_, i) => i !== index));
@@ -1217,7 +1246,7 @@ export function CreateMarketV2() {
                 variant="outline"
                 size="sm"
                 onClick={estimateGasCost}
-                disabled={isEstimatingGas || !validateForm()}
+                disabled={isEstimatingGas || !isFormValidNoSideEffects()}
               >
                 {isEstimatingGas ? (
                   <>
