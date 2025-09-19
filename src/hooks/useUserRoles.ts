@@ -24,6 +24,9 @@ const MARKET_VALIDATOR_ROLE =
 const DEFAULT_ADMIN_ROLE =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 
+const PAUSER_ROLE =
+  "0x65d7a28e3265b37a6474929f336521b332c1681b933f6cb9f3376673440d862a";
+
 export function useUserRoles(): UserRoles {
   const { address, isConnected } = useAccount();
   const [roles, setRoles] = useState<UserRoles>({
@@ -78,6 +81,15 @@ export function useUserRoles(): UserRoles {
     abi: V2contractAbi,
     functionName: "hasRole",
     args: [MARKET_VALIDATOR_ROLE, address as `0x${string}`],
+    query: { enabled: isConnected && !!address },
+  });
+
+  //CHECK IF USER HAS PAUSER_ROLE (considered admin)
+  const { data: hasPauserRole } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "hasRole",
+    args: [PAUSER_ROLE, address as `0x${string}`],
     query: { enabled: isConnected && !!address },
   });
 

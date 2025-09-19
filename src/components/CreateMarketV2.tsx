@@ -79,6 +79,10 @@ const MARKET_TYPE_LABELS = {
   [MarketType.FREE_ENTRY]: "Free Entry Market",
 };
 
+// Role hash constants (matching Solidity keccak256)
+const QUESTION_CREATOR_ROLE =
+  "0xef485be696bbc0c91ad541bbd553ffb5bd0e18dac30ba76e992dda23cb807a8a"; // keccak256("QUESTION_CREATOR_ROLE")
+
 export function CreateMarketV2() {
   const { isConnected, address } = useAccount();
   const { hasCreatorAccess } = useUserRoles();
@@ -230,6 +234,34 @@ export function CreateMarketV2() {
   });
   const userBalance = (balanceData as bigint | undefined) ?? 0n;
 
+  // Check if user has QUESTION_CREATOR_ROLE
+  const { data: hasCreatorRole } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "hasRole",
+    args: [
+      QUESTION_CREATOR_ROLE,
+      address || "0x0000000000000000000000000000000000000000",
+    ],
+    query: {
+      enabled: isConnected && !!address,
+    },
+  });
+
+  // Check if user is contract owner
+  const { data: contractOwner } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "owner",
+    args: [],
+    query: {
+      enabled: isConnected && !!address,
+    },
+  });
+
+  const isOwner = contractOwner === address;
+  const hasMarketCreationAuth = hasCreatorRole || isOwner;
+
   const addOption = () => {
     if (options.length < 10) {
       setOptions([...options, { name: "", description: "" }]);
@@ -282,6 +314,17 @@ export function CreateMarketV2() {
   };
 
   const validateForm = () => {
+    // Check authorization first
+    if (!hasMarketCreationAuth) {
+      toast({
+        title: "Authorization Error",
+        description:
+          "You don't have permission to create markets. You need the QUESTION_CREATOR_ROLE or be the contract owner.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
     if (!question.trim()) {
       toast({
         title: "Error",
@@ -589,8 +632,28 @@ export function CreateMarketV2() {
     });
     console.log("🏁 Early Resolution Allowed:", earlyResolutionAllowed);
 
+    // Debug authorization
+    console.log("🔐 Authorization Status:");
+    console.log("  - Address:", address);
+    console.log("  - Has Creator Role:", hasCreatorRole);
+    console.log("  - Is Owner:", isOwner);
+    console.log("  - Contract Owner:", contractOwner);
+    console.log("  - Has Market Creation Auth:", hasMarketCreationAuth);
+    console.log("  - Legacy Has Creator Access:", hasCreatorAccess);
+
     if (!validateForm()) {
       console.error("❌ Form validation failed");
+      return;
+    }
+
+    if (!hasMarketCreationAuth) {
+      console.error("❌ User lacks market creation authorization");
+      toast({
+        title: "Authorization Error",
+        description:
+          "You don't have permission to create markets. You need the QUESTION_CREATOR_ROLE or be the contract owner.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -867,15 +930,27 @@ export function CreateMarketV2() {
     );
   }
 
-  if (!hasCreatorAccess) {
+  if (!hasCreatorAccess && !hasMarketCreationAuth) {
     return (
       <Card>
         <CardContent className="p-6 text-center">
           <AlertTriangle className="h-16 w-16 mx-auto text-red-400 mb-4" />
           <h3 className="text-lg font-medium mb-2">Access Denied</h3>
           <p className="text-gray-600">
-            You don&apos;t have permission to create markets. Only admins and
-            users with creator role can create markets.
+            You don&apos;t have permission to create markets. You need either:
+            <br />
+            • The QUESTION_CREATOR_ROLE on the contract, or
+            <br />
+            • Be the contract owner
+            <br />
+            <br />
+            <strong>Authorization Status:</strong>
+            <br />
+            Has Creator Role: {hasCreatorRole ? "✅ Yes" : "❌ No"}
+            <br />
+            Is Contract Owner: {isOwner ? "✅ Yes" : "❌ No"}
+            <br />
+            Legacy Creator Access: {hasCreatorAccess ? "✅ Yes" : "❌ No"}
           </p>
         </CardContent>
       </Card>
