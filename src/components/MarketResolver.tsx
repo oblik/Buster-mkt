@@ -74,23 +74,31 @@ export function MarketResolver() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState<
     "all" | "ready" | "resolved" | "disputed"
-  >("ready");
+  >("all"); // Changed default from "ready" to "all"
 
   // Markets are loaded from the subgraph for performance
   const {
     data: marketsData,
     isLoading: isLoadingMarkets,
+    error: marketsError,
     refetch: refetchMarkets,
   } = useQuery({
     queryKey: ["marketsList"],
     queryFn: async () => {
-      const resp = (await subgraphClient.request(GET_MARKETS, {
-        first: 200,
-        skip: 0,
-        orderBy: "totalVolume",
-        orderDirection: "desc",
-      })) as any;
-      return resp.markets as MarketEntity[];
+      console.log("Fetching markets from subgraph..."); // Debug log
+      try {
+        const resp = (await subgraphClient.request(GET_MARKETS, {
+          first: 200,
+          skip: 0,
+          orderBy: "totalVolume",
+          orderDirection: "desc",
+        })) as any;
+        console.log("Subgraph response:", resp); // Debug log
+        return resp.markets as MarketEntity[];
+      } catch (error) {
+        console.error("Subgraph query error:", error);
+        throw error;
+      }
     },
     enabled: isConnected,
     refetchInterval: 30000,
@@ -106,7 +114,11 @@ export function MarketResolver() {
   // Map subgraph markets to local MarketInfo shape
   useEffect(() => {
     const mapMarkets = (items: MarketEntity[] | undefined) => {
-      if (!items) return;
+      console.log("Mapping markets from subgraph:", items); // Debug log
+      if (!items) {
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       try {
         const now = Math.floor(Date.now() / 1000);
@@ -136,6 +148,7 @@ export function MarketResolver() {
           } as MarketInfo;
         });
 
+        console.log("Mapped markets:", mapped); // Debug log
         setMarkets(mapped);
       } catch (err) {
         console.error("Error mapping markets:", err);
@@ -370,8 +383,23 @@ export function MarketResolver() {
           </div>
 
           {/* Markets List */}
-          {isLoading ? (
+          {marketsError ? (
+            <div className="text-center py-8">
+              <AlertTriangle className="h-16 w-16 mx-auto text-red-400 mb-4" />
+              <h3 className="text-lg font-medium mb-2">
+                Error Loading Markets
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Failed to load markets from subgraph: {marketsError.message}
+              </p>
+              <Button onClick={() => refetchMarkets()}>Retry</Button>
+            </div>
+          ) : isLoading || isLoadingMarkets ? (
             <div className="space-y-4">
+              <div className="text-center py-4">
+                <Loader2 className="h-8 w-8 mx-auto animate-spin text-gray-400 mb-2" />
+                <p className="text-gray-600">Loading markets...</p>
+              </div>
               {[...Array(3)].map((_, i) => (
                 <div key={i} className="border rounded-lg p-4 animate-pulse">
                   <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
@@ -383,9 +411,18 @@ export function MarketResolver() {
             <div className="text-center py-8">
               <Clock className="h-16 w-16 mx-auto text-gray-400 mb-4" />
               <h3 className="text-lg font-medium mb-2">No Markets Found</h3>
-              <p className="text-gray-600">
+              <p className="text-gray-600 mb-4">
                 No markets match your current filter criteria.
+                {filter === "ready" &&
+                  " Try changing the filter to 'All Markets' to see all available markets."}
               </p>
+              <div className="text-xs text-gray-500 mt-4">
+                <p>Debug info:</p>
+                <p>Total markets loaded: {markets.length}</p>
+                <p>Current filter: {filter}</p>
+                <p>Search term: "{searchTerm}"</p>
+                <p>Connected: {isConnected ? "Yes" : "No"}</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
