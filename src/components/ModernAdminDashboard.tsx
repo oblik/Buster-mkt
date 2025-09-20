@@ -135,8 +135,8 @@ export function ModernAdminDashboard() {
                   💰 Admin Withdrawals Available
                 </p>
                 <p className="text-xs text-blue-700">
-                  Check the "Withdrawals" tab to claim admin liquidity and
-                  unused funds from your resolved markets
+                  Check the &ldquo;Withdrawals&ldquo; tab to claim admin
+                  liquidity and unused funds from your resolved markets
                 </p>
               </div>
               <button

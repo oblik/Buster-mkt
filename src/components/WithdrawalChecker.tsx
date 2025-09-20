@@ -134,8 +134,8 @@ export function WithdrawalChecker() {
             </h3>
             <div className="space-y-4 max-w-2xl mx-auto">
               <p className="text-gray-700">
-                You don't have admin permissions to access platform withdrawal
-                features.
+                You don&apost have admin permissions to access platform
+                withdrawal features.
               </p>
               <div className="p-4 bg-gray-50 rounded-lg text-left">
                 <h4 className="font-semibold text-gray-900 mb-2">
