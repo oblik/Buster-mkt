@@ -90,7 +90,7 @@ export function MarketResolver() {
     error: marketsError,
     refetch: refetchMarkets,
   } = useQuery({
-    queryKey: ["marketsList", marketCount],
+    queryKey: ["marketsList", marketCount ? Number(marketCount) : 0],
     queryFn: async () => {
       if (!marketCount) return [];
 
@@ -116,10 +116,33 @@ export function MarketResolver() {
             args: [BigInt(i)],
           });
 
+          // Convert BigInt values to numbers/strings for JSON serialization
+          const serializedMarketInfo = [
+            marketInfo[0], // title (string)
+            marketInfo[1], // description (string)
+            Number(marketInfo[2]), // endTime (convert BigInt to number)
+            Number(marketInfo[3]), // category (convert BigInt to number)
+            Number(marketInfo[4]), // optionCount (convert BigInt to number)
+            marketInfo[5], // resolved (boolean)
+            marketInfo[6], // resolvedOutcome (boolean)
+            Number(marketInfo[7]), // marketType (convert BigInt to number)
+            marketInfo[8], // invalidated (boolean)
+            Number(marketInfo[9]), // totalVolume (convert BigInt to number)
+          ];
+
+          const serializedMarketStatus = [
+            marketStatus[0], // isActive (boolean)
+            marketStatus[1], // isResolved (boolean)
+            marketStatus[2], // isExpired (boolean)
+            marketStatus[3], // canTrade (boolean)
+            marketStatus[4], // canResolve (boolean)
+            Number(marketStatus[5]), // timeRemaining (convert BigInt to number)
+          ];
+
           markets.push({
             id: i,
-            marketInfo,
-            marketStatus,
+            marketInfo: serializedMarketInfo,
+            marketStatus: serializedMarketStatus,
           });
         } catch (error) {
           console.error(`Error fetching market ${i}:`, error);
@@ -179,15 +202,15 @@ export function MarketResolver() {
             marketId: item.id,
             question: title,
             description: description || "",
-            endTime: BigInt(Number(endTime)),
-            category: Number(category),
-            optionCount: BigInt(Number(optionCount)),
+            endTime: BigInt(endTime), // endTime is already a number
+            category: category, // category is already a number
+            optionCount: BigInt(optionCount), // optionCount is already a number
             resolved: Boolean(resolved),
             disputed: false, // Not available in basic info
             winningOptionId: 0n, // Would need additional call to get this
             creator: "", // Would need additional call to get this
             options: [], // Would need additional calls to get option names
-            totalShares: Array(Number(optionCount)).fill(0n),
+            totalShares: Array(optionCount).fill(0n), // optionCount is already a number
             canResolve: Boolean(canResolve),
             earlyResolutionAllowed: false, // Would need additional call
           } as MarketInfo;
@@ -247,11 +270,25 @@ export function MarketResolver() {
             options.push(optionData[0]); // option name
           }
 
+          // Convert BigInt values to serializable format
+          const serializedMarketInfo = [
+            marketInfo[0], // title (string)
+            marketInfo[1], // description (string)
+            Number(marketInfo[2]), // endTime
+            Number(marketInfo[3]), // category
+            Number(marketInfo[4]), // optionCount
+            marketInfo[5], // resolved (boolean)
+            marketInfo[6], // resolvedOutcome (boolean)
+            Number(marketInfo[7]), // marketType
+            marketInfo[8], // invalidated (boolean)
+            Number(marketInfo[9]), // totalVolume
+          ];
+
           return {
-            marketInfo,
-            creator,
-            earlyResolution,
-            options,
+            marketInfo: serializedMarketInfo,
+            creator: creator as string,
+            earlyResolution: Boolean(earlyResolution),
+            options: options as string[],
           };
         } catch (error) {
           console.error("Error fetching selected market:", error);
