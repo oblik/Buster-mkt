@@ -19,6 +19,8 @@ import {
   tokenAddress,
   tokenAbi,
   publicClient,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { decodeErrorResult, encodeFunctionData } from "viem";
 import { Loader2 } from "lucide-react";
@@ -54,6 +56,19 @@ function toUnits(amount: string, decimals: number): bigint {
   );
 }
 
+// Helper function to calculate implied probability from price
+function calculateProbability(price: bigint): number {
+  const priceAsNumber = Number(price) / 1e18;
+  return Math.max(0, Math.min(100, priceAsNumber * 100));
+}
+
+// Helper function to calculate implied odds
+function calculateOdds(price: bigint): number {
+  const priceAsNumber = Number(price) / 1e18;
+  if (priceAsNumber <= 0) return 0;
+  return 1 / priceAsNumber;
+}
+
 // Format price with proper decimals
 function formatPrice(price: bigint, decimals: number = 18): string {
   const formatted = Number(price) / Math.pow(10, decimals);
@@ -73,6 +88,17 @@ export function MarketV2BuyInterface({
     hash,
   });
   const { toast } = useToast();
+
+  // Get market odds directly from contract
+  const { data: marketOdds } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "getMarketOdds",
+    args: [BigInt(marketId)],
+  });
+
+  // Convert contract odds to array of bigints
+  const odds = (marketOdds as readonly bigint[]) || [];
 
   // Check if we're using Farcaster connector
   const isFarcasterConnector =
@@ -1259,6 +1285,9 @@ export function MarketV2BuyInterface({
             <div className="grid gap-1">
               {market.options.map((option, index) => {
                 const currentPrice = formatPrice(option.currentPrice);
+                const contractOdds = odds[index] || 0n;
+                const probability = calculateProbability(option.currentPrice);
+                const oddsFormatted = Number(contractOdds) / 1e18;
                 const isSelected = selectedOptionId === index;
 
                 return (
@@ -1285,6 +1314,13 @@ export function MarketV2BuyInterface({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
                           {option.name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {probability.toFixed(1)}% •{" "}
+                          {odds.length > 0
+                            ? (Number(contractOdds) / 1e18).toFixed(2)
+                            : calculateOdds(option.currentPrice).toFixed(2)}
+                          x odds
                         </p>
                       </div>
                       <div className="text-right flex-shrink-0">

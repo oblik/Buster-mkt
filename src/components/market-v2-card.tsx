@@ -376,6 +376,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
       <CardContent className="pb-0">
         {options.length > 0 && (
           <MultiOptionProgress
+            marketId={index}
             options={options}
             totalVolume={totalVolume}
             className="mb-4"
