@@ -9,8 +9,8 @@ export const publicClient = createPublicClient({
 
 export const contractAddress = "0xd24261cD87Ac11A8961a2d5df7036ad87ca7F02A";
 export const tokenAddress = "0x53Bd7F868764333de01643ca9102ee4297eFA3cb";
-export const V2contractAddress = "0x403f2dE2647Eb30bd07603c2b259DA6B8A4B831C";
-export const PolicastViews = "0x89bd3C8D4f770cFFb83Eb48De981c60b441373b3";
+export const V2contractAddress = "0xDd999881D1733A0E80Ff0674f31F62eb108B8163";
+export const PolicastViews = "0xa91e5eb29B2EEE97E0E2379d0400f7D8Cf7A43aA";
 // V1 Contract ABI for binary markets (legacy)
 export const contractAbi = [
   {
@@ -1421,6 +1421,23 @@ export const V2contractAbi = [
   },
   {
     type: "function",
+    name: "disputeMarket",
+    inputs: [
+      { name: "_marketId", type: "uint256", internalType: "uint256" },
+      { name: "_reason", type: "string", internalType: "string" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "emergencyWithdraw",
+    inputs: [{ name: "_amount", type: "uint256", internalType: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "feeCollector",
     inputs: [],
     outputs: [{ name: "", type: "address", internalType: "address" }],
@@ -1588,6 +1605,13 @@ export const V2contractAbi = [
     type: "function",
     name: "getTotalFeesCollected",
     inputs: [],
+    outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getWithdrawableAdminLiquidity",
+    inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
     outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
     stateMutability: "view",
   },
@@ -1907,6 +1931,17 @@ export const V2contractAbi = [
   },
   {
     type: "function",
+    name: "userCostBasis",
+    inputs: [
+      { name: "", type: "address", internalType: "address" },
+      { name: "", type: "uint256", internalType: "uint256" },
+      { name: "", type: "uint256", internalType: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "userPortfolios",
     inputs: [{ name: "", type: "address", internalType: "address" }],
     outputs: [
@@ -1947,6 +1982,13 @@ export const V2contractAbi = [
   {
     type: "function",
     name: "validateMarket",
+    inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "withdrawAdminLiquidity",
     inputs: [{ name: "_marketId", type: "uint256", internalType: "uint256" }],
     outputs: [],
     stateMutability: "nonpayable",
@@ -2827,6 +2869,7 @@ export const V2contractAbi = [
   { type: "error", name: "FreeSlotseFull", inputs: [] },
   { type: "error", name: "InconsistentCostInvariant", inputs: [] },
   { type: "error", name: "InsufficientBalance", inputs: [] },
+  { type: "error", name: "InsufficientContractBalance", inputs: [] },
   { type: "error", name: "InsufficientInitialLiquidity", inputs: [] },
   { type: "error", name: "InsufficientParticipants", inputs: [] },
   { type: "error", name: "InsufficientPrizePool", inputs: [] },
@@ -2852,6 +2895,7 @@ export const V2contractAbi = [
   { type: "error", name: "MarketTooNew", inputs: [] },
   { type: "error", name: "MinTokensRequired", inputs: [] },
   { type: "error", name: "NoFeesToWithdraw", inputs: [] },
+  { type: "error", name: "NoLiquidityToWithdraw", inputs: [] },
   { type: "error", name: "NoUnlockedFees", inputs: [] },
   { type: "error", name: "NoWinningShares", inputs: [] },
   { type: "error", name: "NotAuthorized", inputs: [] },
@@ -2895,6 +2939,13 @@ export const PolicastViewsAbi = [
       { name: "_optionId", type: "uint256", internalType: "uint256" },
     ],
     outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "calculateUnrealizedPnL",
+    inputs: [{ name: "_user", type: "address", internalType: "address" }],
+    outputs: [{ name: "", type: "int256", internalType: "int256" }],
     stateMutability: "view",
   },
   {
