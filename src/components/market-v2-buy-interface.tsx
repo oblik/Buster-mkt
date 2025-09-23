@@ -139,7 +139,7 @@ export function MarketV2BuyInterface({
   const [isVisible, setIsVisible] = useState(true);
   const [isValidated, setIsValidated] = useState<boolean | null>(null); // null = checking, true = validated, false = not validated
 
-  // Reset function to completely reset the buying interface
+  // Reset function to completely reset the buying interface//
   const resetBuyingInterface = useCallback(() => {
     setSelectedOptionId(null);
     setAmount("");
