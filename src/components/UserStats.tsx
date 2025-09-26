@@ -12,6 +12,8 @@ import {
   V2contractAbi,
   tokenAddress as defaultTokenAddress,
   tokenAbi as defaultTokenAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { useFarcasterUser } from "@/hooks/useFarcasterUser";
 import { Share2 } from "lucide-react";
 import { sdk } from "@farcaster/miniapp-sdk";
+import { ClaimWinningsSection } from "@/components/ClaimWinningsButton";
 
 interface Vote {
   marketId: number;
@@ -27,7 +30,7 @@ interface Vote {
   amount: bigint;
   timestamp: bigint;
   version: "v1" | "v2";
-  // V2 specific fields
+  // V2 specific fields//
   optionId?: number;
 }
 
@@ -118,18 +121,12 @@ export function UserStats() {
   const totalWinnings = (totalWinningsData as bigint | undefined) ?? 0n;
 
   // V2 Contract Reads
-  const { data: v2Portfolio } = useReadContract({
+  // V2 portfolio tuple: [totalInvested, totalWinnings, unrealizedPnL, realizedPnL, tradeCount]
+  type V2PortfolioTuple = readonly [bigint, bigint, bigint, bigint, bigint];
+  const { data: v2PortfolioTuple } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getUserPortfolio",
-    args: [accountAddress!],
-    query: { enabled: !!accountAddress },
-  });
-
-  const { data: v2TotalWinnings } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "totalWinnings",
+    functionName: "userPortfolios",
     args: [accountAddress!],
     query: { enabled: !!accountAddress },
   });
@@ -197,9 +194,7 @@ export function UserStats() {
         ]);
 
         // For now, V2 vote count is 0 until the contract has user history functions
-        const v2TradeCount = v2Portfolio
-          ? Number((v2Portfolio as any).tradeCount || 0)
-          : 0;
+        const v2TradeCount = v2PortfolioTuple ? Number(v2PortfolioTuple[4]) : 0;
 
         if (v1VoteCount === 0n && v2TradeCount === 0) {
           setStats({
@@ -216,19 +211,13 @@ export function UserStats() {
             v2Wins: 0,
             v2Losses: 0,
             v2TradeCount: 0,
-            v2Portfolio: v2Portfolio
+            v2Portfolio: v2PortfolioTuple
               ? {
-                  totalInvested: BigInt(
-                    (v2Portfolio as any).totalInvested || 0
-                  ),
-                  totalWinnings: BigInt(
-                    (v2Portfolio as any).totalWinnings || 0
-                  ),
-                  unrealizedPnL: BigInt(
-                    (v2Portfolio as any).unrealizedPnL || 0
-                  ),
-                  realizedPnL: BigInt((v2Portfolio as any).realizedPnL || 0),
-                  tradeCount: Number((v2Portfolio as any).tradeCount || 0),
+                  totalInvested: v2PortfolioTuple[0],
+                  totalWinnings: v2PortfolioTuple[1],
+                  unrealizedPnL: v2PortfolioTuple[2],
+                  realizedPnL: v2PortfolioTuple[3],
+                  tradeCount: Number(v2PortfolioTuple[4]),
                 }
               : undefined,
           });
@@ -263,40 +252,49 @@ export function UserStats() {
         // Fetch V2 trades using getUserPortfolio to get trade count
         const v2Trades: any[] = [];
         try {
-          if (v2Portfolio) {
-            const tradeCount = Number((v2Portfolio as any).tradeCount || 0);
+          if (v2PortfolioTuple) {
+            const tradeCount = Number(v2PortfolioTuple[4]);
 
-            // Fetch all trades by index
-            for (let i = 0; i < tradeCount; i++) {
-              try {
-                const trade = await publicClient.readContract({
-                  address: V2contractAddress,
-                  abi: V2contractAbi,
-                  functionName: "userTradeHistory",
-                  args: [address, BigInt(i)],
-                });
-
-                if (trade) {
-                  v2Trades.push({
-                    marketId: Number((trade as any).marketId),
-                    optionId: Number((trade as any).optionId),
-                    buyer: (trade as any).buyer,
-                    seller: (trade as any).seller,
-                    price: BigInt((trade as any).price || 0),
-                    quantity: BigInt((trade as any).quantity || 0),
-                    timestamp: BigInt((trade as any).timestamp || 0),
+            if (tradeCount > 0) {
+              // Fetch all trades by index
+              for (let i = 0; i < tradeCount; i++) {
+                try {
+                  const trade = await publicClient.readContract({
+                    address: V2contractAddress,
+                    abi: V2contractAbi,
+                    functionName: "userTradeHistory",
+                    args: [address, BigInt(i)],
                   });
+
+                  if (trade) {
+                    v2Trades.push({
+                      marketId: Number((trade as any).marketId),
+                      optionId: Number((trade as any).optionId),
+                      buyer: (trade as any).buyer,
+                      seller: (trade as any).seller,
+                      price: BigInt((trade as any).price || 0),
+                      quantity: BigInt((trade as any).quantity || 0),
+                      timestamp: BigInt((trade as any).timestamp || 0),
+                    });
+                  }
+                } catch (innerError) {
+                  console.error(`Failed to fetch V2 trade ${i}:`, innerError);
+                  // If we get a contract revert, it likely means we've reached the end of available trades
+                  if (
+                    (innerError as any)?.message?.includes("reverted") ||
+                    (innerError as any)?.message?.includes(
+                      "ContractFunctionRevertedError"
+                    )
+                  ) {
+                    break;
+                  }
                 }
-              } catch (innerError) {
-                console.error(`Failed to fetch V2 trade ${i}:`, innerError);
               }
             }
           }
         } catch (error) {
           console.warn("V2 trade history error:", error);
-        }
-
-        // Get V2 market IDs from trades
+        } // Get V2 market IDs from trades
         const v2MarketIds = [...new Set(v2Trades.map((t) => t.marketId))];
 
         // Fetch V2 market info for win/loss calculation
@@ -305,8 +303,8 @@ export function UserStats() {
           try {
             for (const marketId of v2MarketIds) {
               const marketInfo = await publicClient.readContract({
-                address: V2contractAddress,
-                abi: V2contractAbi,
+                address: PolicastViews as `0x${string}`,
+                abi: PolicastViewsAbi,
                 functionName: "getMarketInfo",
                 args: [BigInt(marketId)],
               });
@@ -400,9 +398,17 @@ export function UserStats() {
           }
 
           // If user was buyer, they gained shares; if seller, they lost shares
-          if (trade.buyer.toLowerCase() === address.toLowerCase()) {
+          if (
+            trade.buyer &&
+            address &&
+            trade.buyer.toLowerCase() === address.toLowerCase()
+          ) {
             v2UserPositions[trade.marketId][trade.optionId] += trade.quantity;
-          } else if (trade.seller.toLowerCase() === address.toLowerCase()) {
+          } else if (
+            trade.seller &&
+            address &&
+            trade.seller.toLowerCase() === address.toLowerCase()
+          ) {
             v2UserPositions[trade.marketId][trade.optionId] -= trade.quantity;
           }
         });
@@ -442,14 +448,13 @@ export function UserStats() {
         const winRate = totalVotes > 0 ? (totalWins / totalVotes) * 100 : 0;
 
         // Combine V1 and V2 investment amounts
-        const v2TotalInvested = v2Portfolio
-          ? BigInt((v2Portfolio as any).totalInvested || 0)
-          : 0n;
+        const v2TotalInvested = v2PortfolioTuple ? v2PortfolioTuple[0] : 0n;
         const combinedTotalInvested = totalInvested + v2TotalInvested;
 
         // Combine V1 and V2 winnings
-        const v2TotalWinningsAmount =
-          (v2TotalWinnings as bigint | undefined) ?? 0n;
+        const v2TotalWinningsAmount = v2PortfolioTuple
+          ? v2PortfolioTuple[1]
+          : 0n;
         const combinedNetWinnings = totalWinnings + v2TotalWinningsAmount;
 
         const newStats = {
@@ -467,13 +472,13 @@ export function UserStats() {
           v2Wins,
           v2Losses,
           v2TradeCount: v2Trades.length,
-          v2Portfolio: v2Portfolio
+          v2Portfolio: v2PortfolioTuple
             ? {
-                totalInvested: BigInt((v2Portfolio as any).totalInvested || 0),
-                totalWinnings: BigInt((v2Portfolio as any).totalWinnings || 0),
-                unrealizedPnL: BigInt((v2Portfolio as any).unrealizedPnL || 0),
-                realizedPnL: BigInt((v2Portfolio as any).realizedPnL || 0),
-                tradeCount: Number((v2Portfolio as any).tradeCount || 0),
+                totalInvested: v2PortfolioTuple[0],
+                totalWinnings: v2PortfolioTuple[1],
+                unrealizedPnL: v2PortfolioTuple[2],
+                realizedPnL: v2PortfolioTuple[3],
+                tradeCount: Number(v2PortfolioTuple[4]),
               }
             : undefined,
         };
@@ -514,7 +519,7 @@ export function UserStats() {
         setIsLoading(false);
       }
     },
-    [toast, totalWinnings, v2Portfolio, v2TotalWinnings]
+    [toast, totalWinnings, v2PortfolioTuple]
   );
 
   useEffect(() => {
@@ -587,14 +592,14 @@ export function UserStats() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 md:space-y-4">
       {/* Profile Header */}
       <Card className="overflow-hidden border-0 shadow-lg bg-gradient-to-br from-white to-gray-50">
-        <CardContent className="p-6">
-          <div className="flex items-center gap-4 mb-6">
-            <Avatar className="w-16 h-16 ring-4 ring-blue-100">
+        <CardContent className="p-4 md:p-6">
+          <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6">
+            <Avatar className="w-12 h-12 md:w-16 md:h-16 ring-2 md:ring-4 ring-blue-100">
               <AvatarImage src={farcasterUser?.pfpUrl} alt="Profile" />
-              <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-xl font-bold">
+              <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-lg md:text-xl font-bold">
                 {farcasterUser?.username
                   ? farcasterUser.username.charAt(0).toUpperCase()
                   : accountAddress
@@ -602,13 +607,13 @@ export function UserStats() {
                   : "?"}
               </AvatarFallback>
             </Avatar>
-            <div className="flex-1">
-              <h2 className="text-2xl font-bold text-gray-900">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg md:text-2xl font-bold text-gray-900 truncate">
                 {farcasterUser?.username
                   ? `@${farcasterUser.username}`
                   : "Anonymous Trader"}
               </h2>
-              <p className="text-sm text-gray-500 font-mono">
+              <p className="text-xs md:text-sm text-gray-500 font-mono truncate">
                 {accountAddress
                   ? `${accountAddress.slice(0, 6)}...${accountAddress.slice(
                       -4
@@ -626,162 +631,30 @@ export function UserStats() {
                 onClick={handleShare}
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                className="flex items-center gap-1 md:gap-2 text-blue-600 border-blue-200 hover:bg-blue-50 h-8 md:h-9 text-xs md:text-sm px-2 md:px-3"
               >
-                <Share2 className="w-4 h-4" />
-                Share Stats
+                <Share2 className="w-3 h-3 md:w-4 md:h-4" />
+                <span className="hidden sm:inline">Share Stats</span>
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden border-0 shadow-lg bg-gradient-to-br from-white to-gray-50">
-        <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
-          <CardTitle className="text-xl font-bold">
-            Performance Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Win Rate Circle */}
-            <div className="flex items-center justify-center">
-              <div className="relative w-32 h-32">
-                <svg
-                  className="w-full h-full transform -rotate-90"
-                  viewBox="0 0 100 100"
-                >
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="transparent"
-                    className="text-gray-200"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="transparent"
-                    strokeDasharray={`${2 * Math.PI * 40}`}
-                    strokeDashoffset={`${
-                      2 * Math.PI * 40 * (1 - stats.winRate / 100)
-                    }`}
-                    className="text-green-500 transition-all duration-1000 ease-out"
-                    style={{
-                      strokeLinecap: "round",
-                    }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">
-                      {stats.winRate.toFixed(1)}%
-                    </div>
-                    <div className="text-xs text-gray-500">Win Rate</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Stats Grid */}
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <StatCard
-                  label="Wins"
-                  value={stats.wins}
-                  icon="🎯"
-                  color="text-green-600"
-                  bgColor="bg-green-50"
-                />
-                <StatCard
-                  label="Losses"
-                  value={stats.losses}
-                  icon="❌"
-                  color="text-red-600"
-                  bgColor="bg-red-50"
-                />
-              </div>
-
-              <StatCard
-                label="Total Invested"
-                value={`${formatAmount(stats.totalInvested)} ${tokenSymbol}`}
-                icon="💰"
-                color="text-blue-600"
-                bgColor="bg-blue-50"
-                fullWidth
-              />
-
-              <StatCard
-                label="Net Winnings"
-                value={`${formatAmount(stats.netWinnings)} ${tokenSymbol}`}
-                icon={Number(stats.netWinnings) >= 0 ? "📈" : "📉"}
-                color={
-                  Number(stats.netWinnings) >= 0
-                    ? "text-green-600"
-                    : "text-red-600"
-                }
-                bgColor={
-                  Number(stats.netWinnings) >= 0 ? "bg-green-50" : "bg-red-50"
-                }
-                fullWidth
-              />
-
-              {/* Total P&L (V2 Only) */}
-              {stats.v2Portfolio && (
-                <StatCard
-                  label="Total P&L (V2)"
-                  value={`${formatSignedAmount(
-                    stats.v2Portfolio.realizedPnL +
-                      stats.v2Portfolio.unrealizedPnL
-                  )} ${tokenSymbol}`}
-                  icon={
-                    Number(
-                      stats.v2Portfolio.realizedPnL +
-                        stats.v2Portfolio.unrealizedPnL
-                    ) >= 0
-                      ? "💰"
-                      : "📉"
-                  }
-                  color={
-                    Number(
-                      stats.v2Portfolio.realizedPnL +
-                        stats.v2Portfolio.unrealizedPnL
-                    ) >= 0
-                      ? "text-green-600"
-                      : "text-red-600"
-                  }
-                  bgColor={
-                    Number(
-                      stats.v2Portfolio.realizedPnL +
-                        stats.v2Portfolio.unrealizedPnL
-                    ) >= 0
-                      ? "bg-green-50"
-                      : "bg-red-50"
-                  }
-                  fullWidth
-                />
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Claim Winnings inserted directly after Profile Header */}
+      <ClaimWinningsSection />
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="p-4 text-center border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100">
-          <div className="text-2xl font-bold text-blue-700">
+      {/* <div className="grid grid-cols-3 gap-2 md:gap-4">
+        <Card className="p-3 md:p-4 text-center border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100">
+          <div className="text-lg md:text-2xl font-bold text-blue-700">
             {stats.totalVotes}
           </div>
           <div className="text-xs font-medium text-blue-600">Total Votes</div>
         </Card>
 
-        <Card className="p-4 text-center border-0 shadow-md bg-gradient-to-br from-purple-50 to-purple-100">
-          <div className="text-2xl font-bold text-purple-700">
+        <Card className="p-3 md:p-4 text-center border-0 shadow-md bg-gradient-to-br from-purple-50 to-purple-100">
+          <div className="text-lg md:text-2xl font-bold text-purple-700">
             {((stats.wins / Math.max(stats.totalVotes, 1)) * 100).toFixed(0)}%
           </div>
           <div className="text-xs font-medium text-purple-600">
@@ -789,8 +662,8 @@ export function UserStats() {
           </div>
         </Card>
 
-        <Card className="p-4 text-center border-0 shadow-md bg-gradient-to-br from-indigo-50 to-indigo-100">
-          <div className="text-2xl font-bold text-indigo-700">
+        <Card className="p-3 md:p-4 text-center border-0 shadow-md bg-gradient-to-br from-indigo-50 to-indigo-100">
+          <div className="text-lg md:text-2xl font-bold text-indigo-700">
             {stats.totalVotes > 0
               ? (
                   Number(stats.totalInvested) /
@@ -801,25 +674,25 @@ export function UserStats() {
           </div>
           <div className="text-xs font-medium text-indigo-600">Avg Bet</div>
         </Card>
-      </div>
+      </div> */}
 
       {/* V1 vs V2 Performance Breakdown */}
       {(stats.v1Markets > 0 || stats.v2Markets > 0) && (
         <Card className="overflow-hidden border-0 shadow-lg bg-gradient-to-br from-white to-gray-50">
-          <CardHeader className="bg-gradient-to-r from-green-600 to-teal-600 text-white">
-            <CardTitle className="text-xl font-bold">
+          <CardHeader className="bg-gradient-to-r from-green-600 to-teal-600 text-white pb-3 md:pb-6">
+            <CardTitle className="text-lg md:text-xl font-bold">
               Market Performance Breakdown
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <CardContent className="p-4 md:p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
               {/* V1 Binary Markets */}
               <div className="space-y-3">
-                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                  <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
+                <h3 className="text-base md:text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <span className="w-2 h-2 md:w-3 md:h-3 bg-blue-500 rounded-full"></span>
                   Binary Markets (V1)
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
                   <StatCard
                     label="Markets"
                     value={stats.v1Markets}
@@ -842,7 +715,7 @@ export function UserStats() {
                     bgColor="bg-blue-50"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
                   <StatCard
                     label="Wins"
                     value={stats.v1Wins}
@@ -858,18 +731,18 @@ export function UserStats() {
                     bgColor="bg-red-50"
                   />
                 </div>
-                <div className="text-sm text-gray-600">
+                <div className="text-xs md:text-sm text-gray-600">
                   Classic binary prediction markets with Yes/No options
                 </div>
               </div>
 
               {/* V2 Multi-Option Markets */}
               <div className="space-y-3">
-                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                  <span className="w-3 h-3 bg-green-500 rounded-full"></span>
+                <h3 className="text-base md:text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <span className="w-2 h-2 md:w-3 md:h-3 bg-green-500 rounded-full"></span>
                   Multi-Option Markets (V2)
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
                   <StatCard
                     label="Markets"
                     value={stats.v2Markets}
@@ -892,7 +765,7 @@ export function UserStats() {
                     bgColor="bg-green-50"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
                   <StatCard
                     label="Wins"
                     value={stats.v2Wins}
@@ -908,7 +781,7 @@ export function UserStats() {
                     bgColor="bg-red-50"
                   />
                 </div>
-                <div className="text-sm text-gray-600">
+                <div className="text-xs md:text-sm text-gray-600">
                   Advanced markets with up to 10 different outcome options
                 </div>
 
@@ -1057,15 +930,19 @@ function StatCard({
 }) {
   return (
     <div
-      className={`p-4 rounded-lg border border-gray-100 ${bgColor} ${
+      className={`p-3 md:p-4 rounded-lg border border-gray-100 ${bgColor} ${
         fullWidth ? "col-span-2" : ""
       }`}
     >
-      <div className="flex items-center gap-3">
-        <span className="text-2xl">{icon}</span>
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-600">{label}</p>
-          <p className={`text-lg font-bold ${color}`}>{value}</p>
+      <div className="flex items-center gap-2 md:gap-3">
+        <span className="text-lg md:text-2xl">{icon}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs md:text-sm font-medium text-gray-600 truncate">
+            {label}
+          </p>
+          <p className={`text-sm md:text-lg font-bold ${color} truncate`}>
+            {value}
+          </p>
         </div>
       </div>
     </div>

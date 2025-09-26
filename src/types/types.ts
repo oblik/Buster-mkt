@@ -10,7 +10,7 @@ export interface Market {
   resolved: boolean;
 }
 
-// V2 Market Types
+// V2 Market Types//
 export enum MarketType {
   PAID = 0,
   FREE_ENTRY = 1,
@@ -46,41 +46,45 @@ export interface MarketV2 {
   description: string;
   endTime: bigint;
   category: MarketCategory;
-  marketType?: MarketType;
-  optionCount: number;
+  marketType: MarketType;
+  optionCount: bigint;
   options: MarketOption[];
   resolved: boolean;
   disputed: boolean;
   validated: boolean;
-  invalidated?: boolean; // NEW: Track if market has been invalidated
-  winningOptionId: number;
+  invalidated: boolean; // Market has been invalidated by admin
+  winningOptionId: bigint;
   creator: string;
-  totalLiquidity?: bigint;
-  totalVolume?: bigint;
-  createdAt?: bigint;
+  createdAt: bigint;
   // V3 Financial Tracking
-  adminInitialLiquidity?: bigint;
-  userLiquidity?: bigint;
-  platformFeesCollected?: bigint;
-  ammFeesCollected?: bigint;
-  adminLiquidityClaimed?: boolean;
-  ammLiquidityPool?: bigint;
-  payoutIndex?: bigint;
+  adminInitialLiquidity: bigint;
+  userLiquidity: bigint;
+  totalVolume: bigint;
+  platformFeesCollected: bigint;
+  ammFeesCollected: bigint;
+  adminLiquidityClaimed: boolean;
+  ammLiquidityPool: bigint;
+  payoutIndex: bigint;
   // Free Entry Configuration
-  freeEntryConfig?: {
-    maxFreeParticipants: bigint;
-    tokensPerParticipant: bigint; // Changed from freeSharesPerUser
-    currentFreeParticipants: bigint;
-    totalPrizePool: bigint;
-    remainingPrizePool: bigint;
-    isActive: boolean;
-  };
+  freeConfig?: FreeMarketConfig;
   // AMM Configuration
   ammConfig?: {
     tokenReserve: bigint;
     totalLiquidity: bigint;
     feeRate: bigint;
   };
+  // Event-based market support
+  earlyResolutionAllowed: boolean;
+}
+
+// Free Entry Configuration
+export interface FreeMarketConfig {
+  maxFreeParticipants: bigint;
+  tokensPerParticipant: bigint;
+  currentFreeParticipants: bigint;
+  totalPrizePool: bigint;
+  remainingPrizePool: bigint;
+  isActive: boolean;
 }
 
 // V2 User Portfolio
@@ -89,7 +93,7 @@ export interface UserPortfolio {
   totalWinnings: bigint;
   unrealizedPnL: bigint;
   realizedPnL: bigint;
-  tradeCount: number;
+  tradeCount: bigint;
 }
 
 // Trade data structure from contract
@@ -113,7 +117,7 @@ export interface PricePoint {
 // V2 Market Stats from Contract
 export interface MarketStatsV2 {
   totalVolume: bigint;
-  participantCount: number;
+  participantCount: bigint;
   averagePrice: bigint;
   priceVolatility: bigint;
   lastTradePrice: bigint;
@@ -172,11 +176,42 @@ export interface CreateMarketParams {
   category: MarketCategory;
   marketType: MarketType;
   initialLiquidity: bigint;
+  earlyResolutionAllowed: boolean;
 }
 
 export interface CreateFreeMarketParams extends CreateMarketParams {
   maxFreeParticipants: bigint;
   tokensPerParticipant: bigint;
+}
+
+// Batch Distribution Types
+export interface BatchDistributionRequest {
+  marketId: number;
+  recipients: string[];
+}
+
+export interface BatchDistributionPreview {
+  recipients: string[];
+  amounts: string[];
+  totalRecipients: number;
+  totalAmount: number;
+}
+
+export interface BatchDistributionResult {
+  success: boolean;
+  totalDistributed: bigint;
+  recipientCount: number;
+  txHash?: string;
+  error?: string;
+}
+
+// User Winnings Information
+export interface UserWinnings {
+  hasWinnings: boolean;
+  amount: bigint;
+  hasClaimed: boolean;
+  marketId: number;
+  winningOptionId: number;
 }
 
 export interface VolumeHistoryData {

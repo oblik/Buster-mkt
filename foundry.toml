@@ -1,0 +1,12 @@
+[profile.default]
+src = 'contract'
+libs = ['contract/lib']
+solc_version = '0.8.26'
+evm_version = 'paris'
+optimizer = true
+optimizer_runs = 200
+remappings = [
+    'forge-std/=contract/lib/forge-std/src/',
+    'prb-math/=contract/lib/prb-math/src/',
+    '@openzeppelin/=contract/lib/openzeppelin-contracts/',
+]

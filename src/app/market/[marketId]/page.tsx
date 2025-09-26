@@ -4,6 +4,8 @@ import {
   publicClient,
   V2contractAddress,
   V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { Metadata, ResolvingMetadata } from "next";
 import { notFound, redirect } from "next/navigation";
@@ -31,9 +33,12 @@ type MarketInfoV2ContractReturn = readonly [
   bigint, // optionCount
   boolean, // resolved
   boolean, // disputed
+  number, // marketType
   boolean, // invalidated
   bigint, // winningOptionId
-  string // creator
+  bigint, // totalVolume
+  `0x${string}`, // creator
+  boolean // earlyResolutionAllowed
 ];
 
 // Helper function to determine market version and fetch data
@@ -52,12 +57,12 @@ async function fetchMarketData(marketId: string) {
       functionName: "getMarketInfo",
       args: [marketIdBigInt],
     }) as Promise<MarketInfoV1ContractReturn>,
-    publicClient.readContract({
-      address: V2contractAddress,
-      abi: V2contractAbi,
+    (await publicClient.readContract({
+      address: PolicastViews,
+      abi: PolicastViewsAbi,
       functionName: "getMarketInfo",
       args: [marketIdBigInt],
-    }) as Promise<MarketInfoV2ContractReturn>,
+    })) as unknown as MarketInfoV2ContractReturn,
   ]);
 
   const v1Exists = v1Result.status === "fulfilled" && v1Result.value[0]; // Check if question exists
@@ -171,8 +176,8 @@ export async function generateMetadata(
         optionCount: Number(marketData[4]), // Convert bigint to number
         resolved: marketData[5],
         disputed: marketData[6],
-        winningOptionId: Number(marketData[7]), // Convert bigint to number
-        creator: marketData[8],
+        winningOptionId: Number(marketData[9]), // Convert bigint to number
+        creator: marketData[11],
         version: "v2",
       };
 

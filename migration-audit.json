@@ -1,0 +1,136 @@
+{
+  "generatedAt": "2025-09-17T00:00:00Z",
+  "summary": {
+    "filesWithUseReadContract": 20,
+    "prioritySuggestions": [
+      "MarketAnalyticsV2",
+      "MarketResolver",
+      "MarketValidationManager",
+      "UserPortfolioV2",
+      "FreeMarketsList"
+    ]
+  },
+  "files": [
+    {
+      "path": "src/components/FreeMarketClaimStatus.tsx",
+      "reads": [
+        {
+          "functionName": "hasUserClaimedFreeTokens",
+          "args": ["marketId", "userAddress"]
+        },
+        { "functionName": "claimFreeTokens", "args": ["marketId"] },
+        { "functionName": "getMarketInfo", "args": ["marketId"] }
+      ],
+      "notes": "Used to display claim status and trigger claim transaction. Migrated to subgraph in-progress."
+    },
+    {
+      "path": "src/components/FreeMarketsList.tsx",
+      "reads": [{ "functionName": "getMarketCount", "args": [] }],
+      "notes": "Currently placeholder UI; should use subgraph to list free markets efficiently."
+    },
+    {
+      "path": "src/components/UserPortfolioV2.tsx",
+      "reads": [
+        { "functionName": "getBettingToken", "args": [] },
+        { "functionName": "symbol", "args": ["tokenAddress"] },
+        { "functionName": "decimals", "args": ["tokenAddress"] },
+        { "functionName": "getMarketCount", "args": [] },
+        {
+          "functionName": "getUserShares",
+          "args": ["userAddress", "marketId"]
+        },
+        { "functionName": "getMarketInfo", "args": ["marketId"] },
+        { "functionName": "getMarketOption", "args": ["marketId", "optionId"] },
+        { "functionName": "userTradeHistory", "args": ["userAddress"] }
+      ],
+      "notes": "Primary user portfolio display; high priority to move to subgraph for performance."
+    },
+    {
+      "path": "src/hooks/useV3PlatformData.ts",
+      "reads": [
+        { "functionName": "getPlatformStats", "args": [] },
+        { "functionName": "platformFeeRate", "args": [] },
+        { "functionName": "owner", "args": [] }
+      ],
+      "notes": "Platform-level stats; can be served by subgraph event `UserPortfolioUpdated` and `PlatformFeesWithdrawn`."
+    },
+    {
+      "path": "src/hooks/useV3UserRoles.ts",
+      "reads": [
+        { "functionName": "owner", "args": [] },
+        { "functionName": "getPlatformStats", "args": [] }
+      ],
+      "notes": "Role checks; some data (owner) can remain on-chain but role membership (`hasRole`) could be indexed via events or left as contract calls."
+    },
+    {
+      "path": "src/hooks/useUserRoles.ts",
+      "reads": [
+        { "functionName": "owner", "args": [] },
+        { "functionName": "hasRole", "args": ["role", "userAddress"] },
+        { "functionName": "hasRole", "args": ["role", "userAddress"] },
+        { "functionName": "hasRole", "args": ["role", "userAddress"] },
+        { "functionName": "hasRole", "args": ["role", "userAddress"] }
+      ],
+      "notes": "Several role checks; these can be migrated to subgraph by indexing RoleGranted/RoleRevoked events."
+    },
+    {
+      "path": "src/components/MarketAnalyticsV2.tsx",
+      "reads": [
+        { "functionName": "getBettingToken", "args": [] },
+        { "functionName": "symbol", "args": ["tokenAddress"] },
+        { "functionName": "decimals", "args": ["tokenAddress"] },
+        { "functionName": "getMarketCount", "args": [] },
+        { "functionName": "getMarketInfo", "args": ["marketId"] },
+        { "functionName": "getMarketOption", "args": ["marketId", "optionId"] }
+      ],
+      "notes": "Heavy on-chain usage; high priority to migrate to subgraph for performance/scalability."
+    },
+    {
+      "path": "src/lib/market-migration.ts",
+      "reads": [
+        { "functionName": "getMarketInfo", "args": ["marketId"] },
+        { "functionName": "getMarketCount", "args": [] },
+        { "functionName": "getMarketOption", "args": ["marketId", "optionId"] }
+      ],
+      "notes": "Utility for migrating/reading markets; keep as fallback but prefer subgraph."
+    },
+    {
+      "path": "src/components/MarketResolver.tsx",
+      "reads": [
+        { "functionName": "getMarketCount", "args": [] },
+        { "functionName": "getMarketInfo", "args": ["marketId"] },
+        { "functionName": "getMarketOption", "args": ["marketId", "optionId"] }
+      ],
+      "notes": "Admin tool for resolving markets; can be migrated incrementally to subgraph for listing and details, but write actions remain on-chain."
+    },
+    {
+      "path": "src/components/MarketValidationManager.tsx",
+      "reads": [
+        { "functionName": "getMarketCount", "args": [] },
+        { "functionName": "getMarketInfo", "args": ["marketId"] },
+        { "functionName": "getMarketOption", "args": ["marketId", "optionId"] }
+      ],
+      "notes": "Validation UI; uses on-chain estimation for validation inference. Candidate for hybrid approach: use subgraph for listing and on-chain for estimation."
+    },
+    {
+      "path": "src/components/AdminDashboard.tsx",
+      "reads": [{ "functionName": "getMarketCount", "args": [] }],
+      "notes": "Admin overview; low cost to migrate to subgraph."
+    },
+    {
+      "path": "src/components/marketCard.tsx",
+      "reads": [
+        {
+          "functionName": "getShareBalance",
+          "args": ["marketId", "userAddress"]
+        }
+      ],
+      "notes": "Per-market user shares check; could be read from subgraph if we index user positions or trade events."
+    },
+    {
+      "path": "src/components/LPRewardsManager.tsx",
+      "reads": [{ "functionName": "lpRewardsEarned", "args": ["userAddress"] }],
+      "notes": "LP rewards data could be derived in subgraph from liquidity events and fees."
+    }
+  ]
+}

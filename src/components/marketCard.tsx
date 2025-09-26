@@ -26,7 +26,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { MessageCircle } from "lucide-react";
 
-// Add LinkifiedText component for URL preview support
+// Add LinkifiedText component for URL preview support//
 const LinkifiedText = ({ text }: { text: string }) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
@@ -118,7 +118,9 @@ export function MarketCard({ index, market }: MarketCardProps) {
   useEffect(() => {
     const fetchCommentCount = async () => {
       try {
-        const response = await fetch(`/api/comments?marketId=${index}`);
+        const response = await fetch(
+          `/api/comments?marketId=${index}&version=v1`
+        );
         if (response.ok) {
           const data = await response.json();
           setCommentCount(data.total || 0);

@@ -3,16 +3,18 @@
 import { useState, useEffect } from "react";
 import {
   useAccount,
-  useReadContract,
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/components/ui/use-toast";
 import {
   V2contractAddress,
   V2contractAbi,
   publicClient,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,11 @@ import {
   Hash,
 } from "lucide-react";
 import { useUserRoles } from "@/hooks/useUserRoles";
+import {
+  mapMarketInfo,
+  MarketBasicInfoTuple,
+  MarketExtendedMetaTuple,
+} from "@/types/market";
 import Link from "next/link";
 
 interface PendingMarket {
@@ -44,8 +51,11 @@ interface PendingMarket {
   optionCount: bigint;
   category: number;
   validated: boolean;
+  invalidated: boolean;
   resolved: boolean;
-  options: string[];
+  disputed: boolean;
+  totalVolume: bigint;
+  earlyResolutionAllowed: boolean;
 }
 
 const MARKET_CATEGORIES = [
@@ -74,11 +84,80 @@ export function MarketValidationManager() {
     null
   );
 
-  const { data: marketCount } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getMarketCount",
-    query: { enabled: isConnected },
+  // Load markets from V2 contract directly
+  const {
+    data: marketCount,
+    isLoading: isLoadingCount,
+    refetch: refetchCount,
+  } = useQuery({
+    queryKey: ["marketCount"],
+    queryFn: async () => {
+      const count = await publicClient.readContract({
+        address: V2contractAddress as `0x${string}`,
+        abi: V2contractAbi,
+        functionName: "marketCount",
+      });
+      return Number(count);
+    },
+    enabled: isConnected,
+    refetchInterval: 30000,
+  });
+
+  // Fetch market details from contract
+  const {
+    data: marketsData,
+    isLoading: isLoadingMarkets,
+    refetch: refetchMarkets,
+  } = useQuery({
+    queryKey: ["contractMarkets", marketCount],
+    queryFn: async () => {
+      if (!marketCount || marketCount === 0) return [];
+
+      const markets: PendingMarket[] = [];
+
+      // Fetch markets in batches to avoid RPC limits
+      const batchSize = 20;
+      for (let i = 0; i < marketCount; i += batchSize) {
+        const promises = [];
+        const endIndex = Math.min(i + batchSize, marketCount);
+
+        for (let j = i; j < endIndex; j++) {
+          // For each market, fetch basic info and extended meta in parallel
+          promises.push(
+            Promise.all([
+              publicClient.readContract({
+                address: V2contractAddress,
+                abi: V2contractAbi,
+                functionName: "getMarketBasicInfo",
+                args: [BigInt(j)],
+              }),
+              publicClient.readContract({
+                address: V2contractAddress,
+                abi: V2contractAbi,
+                functionName: "getMarketExtendedMeta",
+                args: [BigInt(j)],
+              }),
+            ]).then(([basic, extended]) => ({ basic, extended, marketId: j }))
+          );
+        }
+
+        const batchResults = await Promise.all(
+          promises as Promise<{
+            marketId: number;
+            basic: MarketBasicInfoTuple;
+            extended: MarketExtendedMetaTuple;
+          }>[]
+        );
+
+        batchResults.forEach(({ basic, extended, marketId }) => {
+          markets.push(mapMarketInfo(marketId, basic, extended));
+        });
+      }
+
+      return markets;
+    },
+    enabled: isConnected && typeof marketCount === "number" && marketCount > 0,
+    refetchInterval: 30000,
   });
 
   const { writeContract, data: hash, error, isPending } = useWriteContract();
@@ -88,141 +167,70 @@ export function MarketValidationManager() {
       hash,
     });
 
-  const fetchMarkets = async () => {
-    if (!marketCount || !isConnected) return;
+  // Debug logging for markets data
+  useEffect(() => {
+    console.log("🔍 Contract markets data:", {
+      marketCount,
+      marketsData,
+      isLoadingCount,
+      isLoadingMarkets,
+      isConnected,
+      dataLength: marketsData?.length || 0,
+    });
+  }, [marketCount, marketsData, isLoadingCount, isLoadingMarkets, isConnected]);
 
-    setIsLoading(true);
-    try {
-      const count = Number(marketCount);
-      const marketPromises: Promise<PendingMarket | null>[] = [];
-
-      for (let i = 0; i < count; i++) {
-        marketPromises.push(fetchMarketDetails(i));
-      }
-
-      const results = await Promise.all(marketPromises);
-      const validMarkets = results.filter(
-        (market): market is PendingMarket => market !== null
-      );
-
-      // Separate pending and validated markets
-      const pending = validMarkets.filter((m) => !m.validated && !m.resolved);
-      const validated = validMarkets.filter((m) => m.validated);
-
-      // Sort by creation time (newest first)
-      pending.sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
-      validated.sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
-
-      setPendingMarkets(pending);
-      setValidatedMarkets(validated);
-    } catch (error) {
-      console.error("Error fetching markets:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load markets for validation.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchMarketDetails = async (
-    marketId: number
-  ): Promise<PendingMarket | null> => {
-    try {
-      // Get market info
-      const marketInfo = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketInfo",
-        args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        boolean,
-        bigint,
-        string
-      ];
-
-      const [
-        question,
-        description,
-        endTime,
-        category,
-        optionCount,
-        resolved,
-        disputed,
-        invalidated,
-        winningOptionId,
-        creator,
-      ] = marketInfo;
-
-      // Get first few options to display
-      const options: string[] = [];
-      for (let i = 0; i < Math.min(Number(optionCount), 4); i++) {
-        try {
-          const optionData = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "getMarketOption",
-            args: [BigInt(marketId), BigInt(i)],
-          })) as [string, string, bigint, bigint, bigint, boolean];
-
-          options.push(optionData[0]); // option name
-        } catch {
-          break;
-        }
-      }
-
-      // Check validation status by trying to simulate a purchase
-      // This is a workaround since getMarketInfo doesn't return validated field
-      let validated = false;
+  // Map contract markets to pending/validated lists
+  useEffect(() => {
+    const mapAndSet = (items?: PendingMarket[]) => {
+      if (!items) return;
+      setIsLoading(true);
       try {
-        await publicClient.estimateContractGas({
-          address: V2contractAddress,
-          abi: V2contractAbi,
-          functionName: "buyShares",
-          args: [BigInt(marketId), BigInt(0), BigInt(1), BigInt(1000000)], // Try to buy 1 share of option 0 with max price 1000000
-          account: "0x0000000000000000000000000000000000000001", // Dummy account
-        });
-        validated = true; // If no MarketNotValidated error, it's validated
-      } catch (error: any) {
-        // Check if the error is specifically MarketNotValidated
-        if (
-          error?.message?.includes("MarketNotValidated") ||
-          error?.shortMessage?.includes("MarketNotValidated") ||
-          error?.details?.includes("MarketNotValidated")
-        ) {
-          validated = false;
-        } else {
-          // For other errors (like insufficient funds, invalid option, etc.), assume validated
-          validated = true;
-        }
-      }
+        // Filter markets based on actual contract validation status
+        const pending = items.filter(
+          (m) => !m.validated && !m.invalidated && !m.resolved
+        );
 
-      return {
-        marketId,
-        question,
-        description,
-        creator,
-        createdAt: BigInt(Date.now()), // Placeholder - would come from contract
-        endTime,
-        optionCount,
-        category,
-        validated,
-        resolved,
-        options,
-      };
-    } catch (error) {
-      console.error(`Error fetching market ${marketId}:`, error);
-      return null;
-    }
+        const validated = items.filter((m) => m.validated || m.resolved);
+
+        // Sort by market ID (newer markets have higher IDs)
+        pending.sort((a, b) => b.marketId - a.marketId);
+        validated.sort((a, b) => b.marketId - a.marketId);
+
+        setPendingMarkets(pending);
+        setValidatedMarkets(validated);
+
+        console.log("📊 Market validation data from contract:", {
+          total: items.length,
+          pending: pending.length,
+          validated: validated.length,
+          firstFewPending: pending.slice(0, 3).map((p) => ({
+            id: p.marketId,
+            question: p.question,
+            validated: p.validated,
+            invalidated: p.invalidated,
+            resolved: p.resolved,
+          })),
+        });
+      } catch (err) {
+        console.error("Error mapping contract markets:", err);
+        toast({
+          title: "Error",
+          description: "Failed to load markets from contract.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    mapAndSet(marketsData);
+  }, [marketsData, toast]);
+
+  // We no longer fetch details on-chain per-market here; we get all details directly from getMarketInfo
+
+  const handleRefresh = () => {
+    refetchCount();
+    refetchMarkets();
   };
 
   const handleValidateMarket = async (marketId: number) => {
@@ -258,24 +266,19 @@ export function MarketValidationManager() {
   };
 
   useEffect(() => {
-    if (isConnected && marketCount) {
-      fetchMarkets();
+    if (isConnected) {
+      refetchCount();
+      refetchMarkets();
     }
-  }, [isConnected, marketCount]);
+  }, [isConnected, refetchCount, refetchMarkets]);
 
   useEffect(() => {
     if (isConfirmed) {
       // Refresh markets after successful validation
-      setTimeout(fetchMarkets, 2000);
+      setTimeout(() => handleRefresh(), 2000);
       setSelectedMarket(null);
     }
   }, [isConfirmed]);
-
-  const formatCreationTime = (timestamp: bigint) => {
-    return formatDistanceToNow(new Date(Number(timestamp)), {
-      addSuffix: true,
-    });
-  };
 
   const formatEndTime = (timestamp: bigint) => {
     return new Date(Number(timestamp) * 1000).toLocaleDateString();
@@ -325,12 +328,16 @@ export function MarketValidationManager() {
           </p>
         </div>
         <Button
-          onClick={fetchMarkets}
-          disabled={isLoading}
+          onClick={() => handleRefresh()}
+          disabled={isLoadingCount || isLoadingMarkets}
           variant="outline"
           className="flex items-center gap-2"
         >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-4 w-4 ${
+              isLoadingCount || isLoadingMarkets ? "animate-spin" : ""
+            }`}
+          />
           Refresh
         </Button>
       </div>
@@ -346,6 +353,11 @@ export function MarketValidationManager() {
                 </p>
                 <p className="text-2xl font-bold text-orange-600">
                   {pendingMarkets.length}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isLoadingCount || isLoadingMarkets
+                    ? "Loading..."
+                    : "Active markets"}
                 </p>
               </div>
               <Clock className="h-8 w-8 text-orange-600" />
@@ -363,6 +375,11 @@ export function MarketValidationManager() {
                 <p className="text-2xl font-bold text-green-600">
                   {validatedMarkets.length}
                 </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isLoadingCount || isLoadingMarkets
+                    ? "Loading..."
+                    : "Resolved markets"}
+                </p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
@@ -376,8 +393,11 @@ export function MarketValidationManager() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Total Markets
                 </p>
-                <p className="text-2xl font-bold">
-                  {marketCount ? Number(marketCount) : "0"}
+                <p className="text-2xl font-bold">{marketCount || "0"}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isLoadingCount || isLoadingMarkets
+                    ? "Loading..."
+                    : "From contract"}
                 </p>
               </div>
               <FileText className="h-8 w-8 text-blue-600" />
@@ -412,7 +432,7 @@ export function MarketValidationManager() {
 
       {/* Markets List */}
       <div className="space-y-4">
-        {isLoading ? (
+        {isLoadingCount || isLoadingMarkets ? (
           <div className="space-y-4">
             {[...Array(3)].map((_, i) => (
               <Card key={i} className="animate-pulse">
@@ -494,11 +514,11 @@ export function MarketValidationManager() {
                               </div>
                               <div>
                                 <span className="text-gray-500 flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  Created:
+                                  <Hash className="h-3 w-3" />
+                                  Market ID:
                                 </span>
                                 <p className="font-medium">
-                                  {formatCreationTime(market.createdAt)}
+                                  #{market.marketId}
                                 </p>
                               </div>
                               <div>
@@ -515,30 +535,29 @@ export function MarketValidationManager() {
                               </div>
                             </div>
 
-                            {/* Market Options Preview */}
-                            {market.options.length > 0 && (
-                              <div className="mb-4">
-                                <p className="text-sm text-gray-500 mb-2">
-                                  Options:
-                                </p>
-                                <div className="flex flex-wrap gap-2">
-                                  {market.options.map((option, index) => (
-                                    <Badge key={index} variant="outline">
-                                      {option}
-                                    </Badge>
-                                  ))}
-                                  {Number(market.optionCount) >
-                                    market.options.length && (
-                                    <Badge variant="outline">
-                                      +
-                                      {Number(market.optionCount) -
-                                        market.options.length}{" "}
-                                      more
-                                    </Badge>
-                                  )}
-                                </div>
+                            {/* Market Info */}
+                            <div className="mb-4">
+                              <p className="text-sm text-gray-500 mb-2">
+                                Market Details:
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant="outline">
+                                  {Number(market.optionCount)} options
+                                </Badge>
+                                <Badge variant="outline">
+                                  Volume: {Number(market.totalVolume) / 1e18}{" "}
+                                  tokens
+                                </Badge>
+                                {market.disputed && (
+                                  <Badge variant="destructive">Disputed</Badge>
+                                )}
+                                {market.earlyResolutionAllowed && (
+                                  <Badge variant="outline">
+                                    Early Resolution
+                                  </Badge>
+                                )}
                               </div>
-                            )}
+                            </div>
 
                             <Separator className="my-4" />
 
@@ -639,10 +658,10 @@ export function MarketValidationManager() {
                               </div>
                               <div>
                                 <span className="text-gray-500">
-                                  Validated:
+                                  Market ID:
                                 </span>
                                 <p className="font-medium">
-                                  {formatCreationTime(market.createdAt)}
+                                  #{market.marketId}
                                 </p>
                               </div>
                               <div>

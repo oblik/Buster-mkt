@@ -9,6 +9,8 @@ import {
   V2contractAbi,
   tokenAddress as defaultTokenAddress,
   tokenAbi as defaultTokenAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -97,11 +99,11 @@ export function PriceHistoryV2() {
   const [tokenSymbol, setTokenSymbol] = useState<string>("BSTR");
   const [tokenDecimals, setTokenDecimals] = useState<number>(18);
 
-  // Get betting token info
-  const { data: bettingTokenAddr } = useReadContract({
+  // Get betting token info//
+  const { data: bettingTokenAddr } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getBettingToken",
+    functionName: "bettingToken",
   });
 
   const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
@@ -122,10 +124,10 @@ export function PriceHistoryV2() {
   });
 
   // Get market count
-  const { data: marketCount } = useReadContract({
+  const { data: marketCount } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketCount",
+    functionName: "marketCount",
   });
 
   useEffect(() => {
@@ -181,22 +183,11 @@ export function PriceHistoryV2() {
         // Limit for performance
         try {
           const marketInfo = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
             functionName: "getMarketInfo",
             args: [BigInt(i)],
-          })) as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            boolean,
-            bigint,
-            string
-          ];
+          })) as unknown as readonly any[];
 
           const [question, , , , optionCount, resolved] = marketInfo;
 
@@ -270,22 +261,11 @@ export function PriceHistoryV2() {
 
       // Get market info
       const marketInfo = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
+        address: PolicastViews,
+        abi: PolicastViewsAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        boolean,
-        bigint,
-        string
-      ];
+      })) as unknown as readonly any[];
 
       const [
         question,
@@ -294,6 +274,7 @@ export function PriceHistoryV2() {
         ,
         optionCount,
         resolved,
+        ,
         ,
         invalidated,
         winningOptionId,
@@ -416,7 +397,8 @@ export function PriceHistoryV2() {
   }, [selectedMarketId, selectedTimeRange]);
 
   const formatPrice = (price: number) => {
-    return price.toFixed(4);
+    // Price is already in token format (0-100), format with 2 decimals
+    return price.toFixed(2);
   };
 
   const formatVolume = (volume: number) => {

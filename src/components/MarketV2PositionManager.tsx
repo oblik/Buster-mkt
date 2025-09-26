@@ -14,7 +14,6 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { MarketV2SellInterface } from "./MarketV2SellInterface";
-import { MarketV2SwapInterface } from "./MarketV2SwapInterface";
 import { MarketV2, MarketOption } from "@/types/types";
 import {
   TrendingUp,
@@ -43,7 +42,8 @@ interface UserPosition {
   unrealizedPnLPercent: number;
 }
 
-// Format price with proper decimals
+// Format price with proper decimals//
+
 function formatPrice(price: bigint, decimals: number = 18): string {
   const formatted = Number(price) / Math.pow(10, decimals);
   if (formatted === 0) return "0.0000";
@@ -74,9 +74,7 @@ export function MarketV2PositionManager({
   onPositionUpdate,
 }: MarketV2PositionManagerProps) {
   const { address: accountAddress } = useAccount();
-  const [activeTab, setActiveTab] = useState<"overview" | "sell" | "swap">(
-    "overview"
-  );
+  const [activeTab, setActiveTab] = useState<"overview" | "sell">("overview");
   const [showZeroPositions, setShowZeroPositions] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -87,15 +85,59 @@ export function MarketV2PositionManager({
     functionName: "symbol",
   });
 
-  // Fetch user shares for this market
-  const { data: userShares, refetch: refetchShares } = useReadContract({
+  // Fetch user shares for each option in this market
+  const userShares0Query = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getUserShares",
-    args: [BigInt(marketId), accountAddress as `0x${string}`],
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 0n, accountAddress as `0x${string}`],
     query: {
       enabled: !!accountAddress,
-      refetchInterval: 10000, // Refetch every 10 seconds
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares1Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 1n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares2Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 2n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares3Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 3n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
+    },
+  });
+
+  const userShares4Query = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketOptionUserShares",
+    args: [BigInt(marketId), 4n, accountAddress as `0x${string}`],
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 10000,
     },
   });
 
@@ -103,7 +145,7 @@ export function MarketV2PositionManager({
   const { data: userPortfolio, refetch: refetchPortfolio } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getUserPortfolio",
+    functionName: "userPortfolios",
     args: [accountAddress as `0x${string}`],
     query: {
       enabled: !!accountAddress,
@@ -167,7 +209,16 @@ export function MarketV2PositionManager({
     },
   });
 
-  // Array of queries for easy access
+  // Array of user shares queries for easy access
+  const userSharesQueries = [
+    userShares0Query,
+    userShares1Query,
+    userShares2Query,
+    userShares3Query,
+    userShares4Query,
+  ];
+
+  // Array of option queries for easy access
   const optionQueries = [
     option0Query,
     option1Query,
@@ -178,13 +229,18 @@ export function MarketV2PositionManager({
 
   // Convert user shares data to position objects with real-time prices
   const positions: UserPosition[] = market.options.map((option, optionId) => {
-    const shares = userShares ? userShares[optionId] || 0n : 0n;
+    // Get shares from individual queries
+    const sharesQuery = userSharesQueries[optionId];
+    const shares = sharesQuery?.data ? (sharesQuery.data as bigint) : 0n;
 
     // Get real-time price from individual queries
-    const optionData = optionQueries[optionId]?.data;
-    const currentPrice = optionData
-      ? (optionData[4] as bigint)
-      : option.currentPrice || 0n;
+    const optionData = optionQueries[optionId]?.data as
+      | readonly [string, string, bigint, bigint, bigint, boolean]
+      | undefined;
+    const currentPrice =
+      optionData && optionData.length > 4
+        ? optionData[4]
+        : option.currentPrice || 0n;
 
     // Debug logging
     if (optionData) {
@@ -200,10 +256,11 @@ export function MarketV2PositionManager({
     let unrealizedPnLPercent = 0;
 
     if (shares > 0n && currentPrice > 0n) {
-      // For simplicity, assume average cost basis of 0.5 per share (50 cents)
+      // For simplicity, assume average cost basis of 50 tokens per share
       // This is a rough estimate since we don't have exact purchase history
+      // 50 tokens represents approximately 50% probability in a typical 2-option market
       const estimatedCostBasis =
-        (shares * BigInt(5 * 10 ** 17)) / BigInt(10 ** 18); // 0.5 per share
+        (shares * BigInt(50 * 10 ** 18)) / BigInt(10 ** 18); // 50 tokens per share
       unrealizedPnL = currentValue - estimatedCostBasis;
       unrealizedPnLPercent =
         estimatedCostBasis > 0n
@@ -236,9 +293,9 @@ export function MarketV2PositionManager({
   const hasPositions = positions.some((pos) => pos.shares > 0n);
 
   // Convert shares array to object for interfaces
-  const userSharesObject = userShares
-    ? Object.fromEntries(userShares.map((shares, index) => [index, shares]))
-    : {};
+  const userSharesObject = userSharesQueries.map((query) =>
+    query?.data ? (query.data as bigint) : 0n
+  );
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -246,9 +303,9 @@ export function MarketV2PositionManager({
     try {
       // Refresh shares, portfolio data, and option data
       const refreshPromises = [
-        refetchShares(),
+        ...userSharesQueries.map((query: any) => query.refetch?.()),
         refetchPortfolio(),
-        ...optionQueries.map((query) => query.refetch?.()),
+        ...optionQueries.map((query: any) => query.refetch?.()),
       ].filter(Boolean);
 
       await Promise.all(refreshPromises);
@@ -265,34 +322,41 @@ export function MarketV2PositionManager({
 
   return (
     <Card className="w-full">
-      <CardHeader>
+      <CardHeader className="pb-3 md:pb-6">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5" />
+          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
+            <Wallet className="h-4 w-4 md:h-5 md:w-5" />
             Your Positions
           </CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 md:gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={handleRefresh}
               disabled={isRefreshing}
+              className="h-8 w-8 p-0 md:h-9 md:w-auto md:p-2"
             >
               <RefreshCw
-                className={cn("h-4 w-4", isRefreshing && "animate-spin")}
+                className={cn(
+                  "h-3 w-3 md:h-4 md:w-4",
+                  isRefreshing && "animate-spin"
+                )}
               />
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowZeroPositions(!showZeroPositions)}
+              className="h-8 px-2 md:h-9 md:px-3 text-xs md:text-sm"
             >
               {showZeroPositions ? (
-                <EyeOff className="h-4 w-4" />
+                <EyeOff className="h-3 w-3 md:h-4 md:w-4" />
               ) : (
-                <Eye className="h-4 w-4" />
+                <Eye className="h-3 w-3 md:h-4 md:w-4" />
               )}
-              {showZeroPositions ? "Hide Zero" : "Show All"}
+              <span className="hidden md:inline ml-1">
+                {showZeroPositions ? "Hide Zero" : "Show All"}
+              </span>
             </Button>
           </div>
         </div>
@@ -300,11 +364,11 @@ export function MarketV2PositionManager({
 
       <CardContent>
         {!accountAddress ? (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-6 md:py-8 text-gray-500 text-sm md:text-base">
             Connect your wallet to view positions
           </div>
         ) : !hasPositions ? (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-6 md:py-8 text-gray-500 text-sm md:text-base">
             You don&apos;t have any positions in this market
           </div>
         ) : (
@@ -312,32 +376,38 @@ export function MarketV2PositionManager({
             value={activeTab}
             onValueChange={(value) => setActiveTab(value as any)}
           >
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="sell">Sell Shares</TabsTrigger>
-              <TabsTrigger value="swap">Swap Shares</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 h-9 md:h-10">
+              <TabsTrigger value="overview" className="text-xs md:text-sm">
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="sell" className="text-xs md:text-sm">
+                Sell Shares
+              </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="overview" className="mt-4 space-y-4">
+            <TabsContent
+              value="overview"
+              className="mt-3 md:mt-4 space-y-3 md:space-y-4"
+            >
               {/* Portfolio Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
                 <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-sm text-gray-600 flex items-center gap-2">
+                  <CardContent className="pt-3 md:pt-4 px-3 md:px-6">
+                    <div className="text-xs md:text-sm text-gray-600 flex items-center gap-2">
                       Total Value
                       {optionQueries.some((q) => q.isRefetching) && (
                         <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />
                       )}
                     </div>
-                    <div className="text-lg font-semibold">
+                    <div className="text-base md:text-lg font-semibold">
                       {formatPrice(totalValue)} {tokenSymbol || "TOKENS"}
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-sm text-gray-600 flex items-center gap-2">
+                  <CardContent className="pt-3 md:pt-4 px-3 md:px-6">
+                    <div className="text-xs md:text-sm text-gray-600 flex items-center gap-2">
                       Unrealized P&L
                       {optionQueries.some((q) => q.isRefetching) && (
                         <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />
@@ -345,7 +415,7 @@ export function MarketV2PositionManager({
                     </div>
                     <div
                       className={cn(
-                        "text-lg font-semibold",
+                        "text-base md:text-lg font-semibold",
                         totalUnrealizedPnL >= 0n
                           ? "text-green-600"
                           : "text-red-600"
@@ -359,11 +429,11 @@ export function MarketV2PositionManager({
                 </Card>
 
                 <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-sm text-gray-600">
+                  <CardContent className="pt-3 md:pt-4 px-3 md:px-6">
+                    <div className="text-xs md:text-sm text-gray-600">
                       Active Positions
                     </div>
-                    <div className="text-lg font-semibold">
+                    <div className="text-base md:text-lg font-semibold">
                       {positions.filter((pos) => pos.shares > 0n).length} /{" "}
                       {positions.length}
                     </div>
@@ -372,27 +442,31 @@ export function MarketV2PositionManager({
               </div>
 
               {/* Individual Positions */}
-              <div className="space-y-3">
-                <h3 className="font-medium text-gray-900">Position Details</h3>
+              <div className="space-y-2 md:space-y-3">
+                <h3 className="font-medium text-gray-900 text-sm md:text-base">
+                  Position Details
+                </h3>
                 {filteredPositions.map((position) => (
                   <Card
                     key={position.optionId}
                     className="border-l-4 border-l-blue-500"
                   >
-                    <CardContent className="pt-4">
+                    <CardContent className="pt-3 md:pt-4 px-3 md:px-6">
                       <div className="flex items-center justify-between mb-2">
                         <div>
-                          <h4 className="font-medium">{position.optionName}</h4>
-                          <div className="text-sm text-gray-600">
+                          <h4 className="font-medium text-sm md:text-base">
+                            {position.optionName}
+                          </h4>
+                          <div className="text-xs md:text-sm text-gray-600">
                             {formatShares(position.shares)} shares
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-medium">
+                          <div className="font-medium text-sm md:text-base">
                             {formatPrice(position.currentValue)}{" "}
                             {tokenSymbol || "TOKENS"}
                           </div>
-                          <div className="text-sm text-gray-600">
+                          <div className="text-xs md:text-sm text-gray-600">
                             @ {formatPrice(position.currentPrice)} per share
                             {optionQueries[position.optionId]?.isRefetching && (
                               <RefreshCw className="inline ml-1 h-3 w-3 animate-spin text-blue-500" />
@@ -403,15 +477,15 @@ export function MarketV2PositionManager({
 
                       {position.shares > 0n && (
                         <div className="flex items-center justify-between pt-2 border-t">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 md:gap-2">
                             {position.unrealizedPnL >= 0n ? (
-                              <TrendingUp className="h-4 w-4 text-green-600" />
+                              <TrendingUp className="h-3 w-3 md:h-4 md:w-4 text-green-600" />
                             ) : (
-                              <TrendingDown className="h-4 w-4 text-red-600" />
+                              <TrendingDown className="h-3 w-3 md:h-4 md:w-4 text-red-600" />
                             )}
                             <span
                               className={cn(
-                                "text-sm font-medium",
+                                "text-xs md:text-sm font-medium",
                                 position.unrealizedPnL >= 0n
                                   ? "text-green-600"
                                   : "text-red-600"
@@ -426,6 +500,7 @@ export function MarketV2PositionManager({
                                 ? "default"
                                 : "destructive"
                             }
+                            className="text-xs px-2 py-0.5 md:px-3 md:py-1"
                           >
                             {position.unrealizedPnL >= 0n ? "Profit" : "Loss"}
                           </Badge>
@@ -437,21 +512,12 @@ export function MarketV2PositionManager({
               </div>
             </TabsContent>
 
-            <TabsContent value="sell" className="mt-4">
+            <TabsContent value="sell" className="mt-3 md:mt-4">
               <MarketV2SellInterface
                 marketId={marketId}
                 market={market}
                 userShares={userSharesObject}
                 onSellComplete={handleRefresh}
-              />
-            </TabsContent>
-
-            <TabsContent value="swap" className="mt-4">
-              <MarketV2SwapInterface
-                marketId={marketId}
-                market={market}
-                userShares={userSharesObject}
-                onSwapComplete={handleRefresh}
               />
             </TabsContent>
           </Tabs>

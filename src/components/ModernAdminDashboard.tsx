@@ -1,0 +1,436 @@
+"use client";
+
+import { useState } from "react";
+import { useAccount, useReadContract } from "wagmi";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CreateMarketV2 } from "./CreateMarketV2";
+import { MarketResolver } from "./MarketResolver";
+import { AdminRoleManager } from "./AdminRoleManager";
+import { MarketValidationManager } from "./MarketValidationManager";
+import { MarketInvalidationManager } from "./MarketInvalidationManager";
+import { AdminWithdrawalsSection } from "./AdminWithdrawalsSection";
+import { useUserRoles } from "@/hooks/useUserRoles";
+import { V2contractAddress, V2contractAbi } from "@/constants/contract";
+import {
+  Settings,
+  Plus,
+  Gavel,
+  DollarSign,
+  Users,
+  Shield,
+  BarChart3,
+  AlertTriangle,
+  CheckCircle,
+  Wallet,
+  TrendingUp,
+  Award,
+  Activity,
+  RefreshCw,
+} from "lucide-react";
+
+export function ModernAdminDashboard() {
+  const { isConnected } = useAccount();
+  const {
+    hasCreatorAccess,
+    hasResolverAccess,
+    hasValidatorAccess,
+    isAdmin,
+    isOwner,
+  } = useUserRoles();
+
+  // Set default tab based on user permissions - prioritize withdrawals for admin users
+  const getDefaultTab = () => {
+    if (hasCreatorAccess) return "create";
+    if (isOwner || isAdmin) return "withdrawals";
+    if (hasValidatorAccess) return "validate";
+    if (hasResolverAccess) return "resolve";
+    return "create";
+  };
+
+  const [activeTab, setActiveTab] = useState(getDefaultTab());
+
+  // Get some basic stats using V3 contract
+  const { data: marketCount } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "marketCount",
+    query: { enabled: isConnected },
+  });
+
+  const { data: platformFeeRate } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "platformFeeRate",
+    query: { enabled: isConnected },
+  });
+
+  const { data: totalPlatformFeesCollected } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "totalPlatformFeesCollected",
+    query: { enabled: isConnected },
+  });
+
+  const hasAnyAccess =
+    hasCreatorAccess || hasResolverAccess || hasValidatorAccess || isAdmin;
+
+  if (!isConnected) {
+    return (
+      <Card>
+        <CardContent className="p-4 md:p-6 text-center">
+          <Shield className="h-12 w-12 md:h-16 md:w-16 mx-auto text-gray-400 mb-3 md:mb-4" />
+          <h3 className="text-base md:text-lg font-medium mb-2">
+            Connect Your Wallet
+          </h3>
+          <p className="text-sm md:text-base text-gray-600">
+            Please connect your wallet to access admin functions.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!hasAnyAccess) {
+    return (
+      <Card>
+        <CardContent className="p-4 md:p-6 text-center">
+          <AlertTriangle className="h-12 w-12 md:h-16 md:w-16 mx-auto text-red-400 mb-3 md:mb-4" />
+          <h3 className="text-base md:text-lg font-medium mb-2">
+            Access Denied
+          </h3>
+          <p className="text-sm md:text-base text-gray-600">
+            You don&apos;t have permission to access admin functions. Contact
+            the contract owner to request access.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const formatFeeRate = (rate: bigint | undefined) => {
+    if (!rate) return "N/A";
+    return `${(Number(rate) / 100).toFixed(2)}%`;
+  };
+
+  const formatTokenAmount = (amount: bigint | undefined) => {
+    if (!amount) return "0";
+    return (Number(amount) / 1e18).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  return (
+    <div className="space-y-4 md:space-y-6 mb-16 md:mb-20">
+      {/* Withdrawals Notification Banner */}
+      {(isOwner || isAdmin) && (
+        <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <DollarSign className="h-5 w-5 text-blue-600" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-900">
+                  💰 Admin Withdrawals Available
+                </p>
+                <p className="text-xs text-blue-700">
+                  Check the &ldquo;Withdrawals&ldquo; tab to claim admin
+                  liquidity and unused funds from your resolved markets
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab("withdrawals")}
+                className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors"
+              >
+                View Withdrawals
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0">
+        <div>
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900 dark:text-white">
+            Admin Dashboard
+          </h1>
+          <p className="text-sm md:text-base text-gray-600 dark:text-gray-300">
+            Manage LMSR prediction markets and platform settings
+          </p>
+        </div>
+        <div className="flex items-center gap-1 md:gap-2 flex-wrap">
+          {isOwner && (
+            <Badge
+              variant="default"
+              className="text-xs md:text-sm px-2 py-0.5 md:px-3 md:py-1"
+            >
+              Owner
+            </Badge>
+          )}
+          {isAdmin && !isOwner && (
+            <Badge
+              variant="secondary"
+              className="text-xs md:text-sm px-2 py-0.5 md:px-3 md:py-1"
+            >
+              Admin
+            </Badge>
+          )}
+          {hasCreatorAccess && !isAdmin && (
+            <Badge
+              variant="outline"
+              className="text-xs md:text-sm px-2 py-0.5 md:px-3 md:py-1"
+            >
+              Creator
+            </Badge>
+          )}
+          {hasResolverAccess && !isAdmin && (
+            <Badge
+              variant="outline"
+              className="text-xs md:text-sm px-2 py-0.5 md:px-3 md:py-1"
+            >
+              Resolver
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Platform Stats - LMSR Focused */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-6">
+        <Card>
+          <CardContent className="p-4 md:p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                  Total Markets
+                </p>
+                <p className="text-lg md:text-2xl font-bold">
+                  {marketCount ? Number(marketCount) : "0"}
+                </p>
+              </div>
+              <BarChart3 className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 md:p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                  Platform Fee Rate
+                </p>
+                <p className="text-lg md:text-2xl font-bold">
+                  {formatFeeRate(platformFeeRate)}
+                </p>
+              </div>
+              <TrendingUp className="h-6 w-6 md:h-8 md:w-8 text-green-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 md:p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                  Total Fees Collected
+                </p>
+                <p className="text-lg md:text-2xl font-bold">
+                  {formatTokenAmount(totalPlatformFeesCollected)} BSTR
+                </p>
+              </div>
+              <Award className="h-6 w-6 md:h-8 md:w-8 text-purple-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 md:p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                  Market System
+                </p>
+                <p className="text-lg md:text-2xl font-bold">LMSR v3</p>
+              </div>
+              <Activity className="h-6 w-6 md:h-8 md:w-8 text-orange-600" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Admin Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex flex-wrap justify-start gap-1 h-auto p-1 md:grid md:grid-cols-6 bg-muted">
+          {hasCreatorAccess && (
+            <TabsTrigger
+              value="create"
+              className="flex items-center gap-1 md:gap-2 flex-1 min-w-[100px] md:min-w-0 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
+            >
+              <Plus className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Create</span>
+            </TabsTrigger>
+          )}
+          {hasValidatorAccess && (
+            <TabsTrigger
+              value="validate"
+              className="flex items-center gap-1 md:gap-2 flex-1 min-w-[100px] md:min-w-0 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
+            >
+              <CheckCircle className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Validate</span>
+            </TabsTrigger>
+          )}
+          {hasValidatorAccess && (
+            <TabsTrigger
+              value="invalidate"
+              className="flex items-center gap-1 md:gap-2 flex-1 min-w-[100px] md:min-w-0 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
+            >
+              <AlertTriangle className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Invalidate</span>
+            </TabsTrigger>
+          )}
+          {hasResolverAccess && (
+            <TabsTrigger
+              value="resolve"
+              className="flex items-center gap-1 md:gap-2 flex-1 min-w-[100px] md:min-w-0 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
+            >
+              <Gavel className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Resolve</span>
+            </TabsTrigger>
+          )}
+          {(isOwner || isAdmin) && (
+            <TabsTrigger
+              value="withdrawals"
+              className="flex items-center gap-1 md:gap-2 flex-1 min-w-[100px] md:min-w-0 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
+            >
+              <Wallet className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Withdrawals</span>
+            </TabsTrigger>
+          )}
+          {isOwner && (
+            <TabsTrigger
+              value="roles"
+              className="flex items-center gap-1 md:gap-2 flex-1 min-w-[100px] md:min-w-0 text-xs md:text-sm px-2 md:px-3 py-1.5 md:py-2"
+            >
+              <Users className="h-3 w-3 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Roles</span>
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        {/* Create Markets Tab */}
+        {hasCreatorAccess && (
+          <TabsContent
+            value="create"
+            className="space-y-4 md:space-y-6 mt-3 md:mt-6"
+          >
+            <CreateMarketV2 />
+          </TabsContent>
+        )}
+
+        {/* Validate Markets Tab */}
+        {hasValidatorAccess && (
+          <TabsContent
+            value="validate"
+            className="space-y-4 md:space-y-6 mt-3 md:mt-6"
+          >
+            <MarketValidationManager />
+          </TabsContent>
+        )}
+
+        {/* Invalidate Markets Tab */}
+        {hasValidatorAccess && (
+          <TabsContent
+            value="invalidate"
+            className="space-y-4 md:space-y-6 mt-3 md:mt-6"
+          >
+            <MarketInvalidationManager />
+          </TabsContent>
+        )}
+
+        {/* Resolve Markets Tab */}
+        {hasResolverAccess && (
+          <TabsContent
+            value="resolve"
+            className="space-y-4 md:space-y-6 mt-3 md:mt-6"
+          >
+            <MarketResolver />
+          </TabsContent>
+        )}
+
+        {/* Admin Withdrawals Tab - LMSR Compatible */}
+        {(isOwner || isAdmin) && (
+          <TabsContent
+            value="withdrawals"
+            className="space-y-4 md:space-y-6 mt-3 md:mt-6"
+          >
+            <div className="space-y-6">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <DollarSign className="h-6 w-6 text-blue-600" />
+                    <div>
+                      <h2 className="text-xl font-semibold">
+                        Admin Withdrawals
+                      </h2>
+                      <p className="text-gray-600 text-sm">
+                        Manage platform fees and admin liquidity from resolved
+                        markets
+                      </p>
+                    </div>
+                  </div>
+                  <AdminWithdrawalsSection />
+                </CardContent>
+              </Card>
+
+              {/* Platform Settings Section */}
+              {isOwner && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Settings className="h-6 w-6 text-purple-600" />
+                      <div>
+                        <h2 className="text-xl font-semibold">
+                          Platform Management
+                        </h2>
+                        <p className="text-gray-600 text-sm">
+                          Advanced platform settings and fee management
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>Note:</strong> For advanced platform settings
+                        like fee rate changes and fee collector management,
+                        visit the{" "}
+                        <a
+                          href="/platform"
+                          className="underline hover:text-blue-900"
+                        >
+                          Platform Management page
+                        </a>
+                        .
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+        )}
+
+        {/* Role Management Tab */}
+        {isOwner && (
+          <TabsContent
+            value="roles"
+            className="space-y-4 md:space-y-6 mt-3 md:mt-6"
+          >
+            <AdminRoleManager />
+          </TabsContent>
+        )}
+      </Tabs>
+    </div>
+  );
+}

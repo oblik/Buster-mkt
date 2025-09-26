@@ -151,7 +151,7 @@ function AnalyticsContentInner() {
       </Tabs>
 
       {/* Quick Stats Overview */}
-      <div className="mt-12">
+      {/* <div className="mt-12">
         <h2 className="text-xl font-semibold mb-6 text-gray-900 dark:text-white">
           Platform Overview
         </h2>
@@ -224,7 +224,7 @@ function AnalyticsContentInner() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }

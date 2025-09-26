@@ -17,7 +17,7 @@ interface MarketWithVersion {
   market: Market | MarketV2;
 }
 
-// Helper function to convert MarketV1Types to Market (for compatibility)
+// Helper function to convert MarketV1Types to Market (for compatibility)//
 function convertV1Market(market: MarketV1Types): Market {
   return {
     question: market.question,

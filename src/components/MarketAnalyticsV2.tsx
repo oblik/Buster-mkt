@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import {
+  subgraphClient,
+  GET_MARKETS,
+  GET_MARKET_BY_ID,
+  Market as MarketEntity,
+} from "@/lib/subgraph";
 import { useToast } from "@/components/ui/use-toast";
 import {
   publicClient,
@@ -91,7 +98,8 @@ export function MarketAnalyticsV2() {
   const [tokenDecimals, setTokenDecimals] = useState<number>(18);
 
   // Get betting token info
-  const { data: bettingTokenAddr } = useReadContract({
+  // cast useReadContract to any to avoid deep ABI typing issues in this migration
+  const { data: bettingTokenAddr } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getBettingToken",
@@ -100,14 +108,14 @@ export function MarketAnalyticsV2() {
   const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
 
   // Get token metadata
-  const { data: symbolData } = useReadContract({
+  const { data: symbolData } = (useReadContract as any)({
     address: tokenAddress,
     abi: defaultTokenAbi,
     functionName: "symbol",
     query: { enabled: !!tokenAddress },
   });
 
-  const { data: decimalsData } = useReadContract({
+  const { data: decimalsData } = (useReadContract as any)({
     address: tokenAddress,
     abi: defaultTokenAbi,
     functionName: "decimals",
@@ -115,7 +123,8 @@ export function MarketAnalyticsV2() {
   });
 
   // Get market count
-  const { data: marketCount } = useReadContract({
+  // We'll use the subgraph for market listings (faster than on-chain iteration)
+  const { data: marketCount } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketCount",
@@ -126,263 +135,102 @@ export function MarketAnalyticsV2() {
     if (decimalsData) setTokenDecimals(Number(decimalsData));
   }, [symbolData, decimalsData]);
 
-  // Fetch markets list
-  const fetchMarketsList = async () => {
-    if (!marketCount) return;
+  // Fetch markets list from subgraph
+  const {
+    data: marketsData,
+    isLoading: isLoadingMarkets,
+    refetch: refetchMarkets,
+  } = useQuery({
+    queryKey: ["marketsList"],
+    queryFn: async () => {
+      const resp = (await subgraphClient.request(GET_MARKETS, {
+        first: 50,
+        skip: 0,
+        orderBy: "totalVolume",
+        orderDirection: "desc",
+      })) as any;
+      return resp.markets as MarketEntity[];
+    },
+    enabled: true,
+    refetchInterval: 30000,
+  });
 
-    setIsLoading(true);
-    try {
-      const count = Number(marketCount);
-      const markets: MarketListItem[] = [];
-
-      for (let i = 0; i < Math.min(count, 50); i++) {
-        // Limit to 50 markets for performance
-        try {
-          const marketInfo = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "getMarketInfo",
-            args: [BigInt(i)],
-          })) as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            boolean,
-            bigint,
-            string
-          ];
-
-          const [question, , endTime, , optionCount, resolved] = marketInfo;
-
-          // Calculate total volume by summing all option volumes
-          let totalVolume = 0n;
-          const participantCount = 0;
-
-          try {
-            for (let j = 0; j < Number(optionCount); j++) {
-              const optionInfo = (await publicClient.readContract({
-                address: V2contractAddress,
-                abi: V2contractAbi,
-                functionName: "getMarketOption",
-                args: [BigInt(i), BigInt(j)],
-              })) as [string, string, bigint, bigint, bigint, boolean];
-
-              totalVolume += optionInfo[3]; // Add option's totalVolume
-            }
-          } catch (error) {
-            console.error(`Error fetching options for market ${i}:`, error);
-          }
-
-          markets.push({
-            id: i,
-            question,
-            totalVolume,
-            participantCount,
-            resolved,
-            endTime,
-          });
-        } catch (error) {
-          console.error(`Error fetching market ${i}:`, error);
-        }
-      }
-
-      // Sort by total volume (descending)
-      markets.sort((a, b) => Number(b.totalVolume - a.totalVolume));
-      setMarketsList(markets);
-
-      // Auto-select the market with highest volume
-      if (markets.length > 0 && !selectedMarketId) {
-        setSelectedMarketId(markets[0].id);
-      }
-    } catch (error) {
-      console.error("Error fetching markets list:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load markets list.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (marketsData && marketsData.length > 0) {
+      const items = marketsData.map((m) => ({
+        id: Number(m.id),
+        question: m.question,
+        totalVolume: BigInt(0) as unknown as bigint, // keep shape; volume handling later
+        participantCount: 0,
+        resolved: m.resolved,
+        endTime: BigInt(Number(m.endTime)),
+      }));
+      setMarketsList(items);
+      if (items.length > 0 && !selectedMarketId)
+        setSelectedMarketId(items[0].id);
     }
-  };
+    setIsLoading(isLoadingMarkets);
+  }, [marketsData, isLoadingMarkets]);
 
-  // Fetch detailed analytics for selected market
-  const fetchMarketAnalytics = async (marketId: number) => {
+  // Selected market details (from subgraph)
+  const {
+    data: selectedMarketData,
+    isLoading: isLoadingSelectedMarket,
+    refetch: refetchSelectedMarket,
+  } = useQuery({
+    queryKey: ["market", selectedMarketId],
+    queryFn: async () => {
+      if (!selectedMarketId) return null;
+      const resp = (await subgraphClient.request(GET_MARKET_BY_ID, {
+        id: selectedMarketId.toString(),
+      })) as any;
+      return resp.market as MarketEntity | null;
+    },
+    enabled: !!selectedMarketId,
+    refetchInterval: 30000,
+  });
+
+  useEffect(() => {
+    if (!selectedMarketData) return;
     setIsLoadingAnalytics(true);
-    try {
-      // Check cache
-      const cacheKey = `${CACHE_KEY}_${marketId}`;
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const data = JSON.parse(cached);
-        if (Date.now() - data.timestamp < CACHE_TTL * 1000) {
-          setMarketAnalytics(data.analytics);
-          setIsLoadingAnalytics(false);
-          return;
-        }
-      }
 
-      // Get market info
-      const marketInfo = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketInfo",
-        args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        boolean,
-        bigint,
-        string
-      ];
+    // Map subgraph market data to MarketAnalytics shape (partial)
+    const analytics: MarketAnalytics = {
+      marketId: Number(selectedMarketData.id),
+      question: selectedMarketData.question,
+      description: selectedMarketData.description || "",
+      category: Number(selectedMarketData.category || 0),
+      optionCount: selectedMarketData.options.length,
+      resolved: selectedMarketData.resolved,
+      disputed: false,
+      winningOptionId: selectedMarketData.winningOptionId
+        ? Number(selectedMarketData.winningOptionId)
+        : undefined,
+      endTime: BigInt(Number(selectedMarketData.endTime || 0)),
+      creator: selectedMarketData.creator,
+      options: selectedMarketData.options.map((o, idx) => ({
+        id: idx,
+        name: o,
+        description: "",
+        totalShares: 0n,
+        totalVolume: 0n,
+        currentPrice: 0n,
+        isActive: true,
+      })),
+      totalVolume: 0n,
+      participantCount: 0,
+      averagePrice: 0n,
+      priceVolatility: 0n,
+      lastTradePrice: 0n,
+      lastTradeTime: 0n,
+      priceHistory: [],
+    };
 
-      const [
-        question,
-        description,
-        endTime,
-        category,
-        optionCount,
-        resolved,
-        disputed,
-        invalidated,
-        winningOptionId,
-        creator,
-      ] = marketInfo;
+    setMarketAnalytics(analytics);
+    setIsLoadingAnalytics(false);
+  }, [selectedMarketData]);
 
-      // Calculate stats from available market and option data
-      let totalVolume = 0n;
-      const totalTrades = 0;
-      const participantCount = 0;
-
-      // Get all options data
-      const options = [];
-      for (let optionId = 0; optionId < Number(optionCount); optionId++) {
-        try {
-          const optionInfo = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "getMarketOption",
-            args: [BigInt(marketId), BigInt(optionId)],
-          })) as [string, string, bigint, bigint, bigint, boolean];
-
-          const [
-            name,
-            optionDescription,
-            totalShares,
-            totalVolume,
-            currentPrice,
-            isActive,
-          ] = optionInfo;
-
-          options.push({
-            id: optionId,
-            name,
-            description: optionDescription,
-            totalShares,
-            totalVolume,
-            currentPrice,
-            isActive,
-          });
-        } catch (error) {
-          console.error(`Error fetching option ${optionId}:`, error);
-        }
-      }
-
-      // Get price history (simplified - in real implementation would fetch historical data)
-      const priceHistory = [];
-      try {
-        const currentPrices = options.map(
-          (opt) => Number(opt.currentPrice) / 10 ** 18
-        );
-        const now = Date.now();
-
-        // Simulate 24h price history (in real implementation, fetch from contract events)
-        for (let i = 23; i >= 0; i--) {
-          const timestamp = now - i * 60 * 60 * 1000; // Hour by hour
-          const prices = currentPrices.map(
-            (price) => price * (0.8 + Math.random() * 0.4) // Simulate price variation
-          );
-
-          priceHistory.push({
-            timestamp,
-            prices,
-            volume: Math.random() * 1000,
-          });
-        }
-      } catch (error) {
-        console.error("Error generating price history:", error);
-      }
-
-      // Calculate total stats from options
-      totalVolume = options.reduce((sum, opt) => sum + opt.totalVolume, 0n);
-
-      const analytics: MarketAnalytics = {
-        marketId,
-        question,
-        description,
-        category,
-        optionCount: Number(optionCount),
-        resolved,
-        disputed,
-        winningOptionId: resolved ? Number(winningOptionId) : undefined,
-        endTime,
-        creator,
-        options,
-        totalVolume,
-        participantCount, // Will be 0 for now, could be calculated from trade history
-        averagePrice:
-          options.length > 0
-            ? options.reduce((sum, opt) => sum + opt.currentPrice, 0n) /
-              BigInt(options.length)
-            : 0n,
-        priceVolatility: 0n, // Would need historical data to calculate
-        lastTradePrice: options.length > 0 ? options[0].currentPrice : 0n,
-        lastTradeTime: 0n, // Would need trade history to calculate
-        priceHistory,
-      };
-
-      setMarketAnalytics(analytics);
-
-      // Cache the data
-      localStorage.setItem(
-        cacheKey,
-        JSON.stringify({
-          analytics,
-          timestamp: Date.now(),
-        })
-      );
-    } catch (error) {
-      console.error("Error fetching market analytics:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load market analytics.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingAnalytics(false);
-    }
-  };
-
-  useEffect(() => {
-    if (marketCount) {
-      fetchMarketsList();
-    }
-  }, [marketCount]);
-
-  useEffect(() => {
-    if (selectedMarketId !== null) {
-      fetchMarketAnalytics(selectedMarketId);
-    }
-  }, [selectedMarketId]);
+  // market list and selected market data are fetched via React Query (see above)
 
   const formatAmount = (amount: bigint) => {
     return (Number(amount) / 10 ** tokenDecimals).toLocaleString(undefined, {
@@ -391,7 +239,15 @@ export function MarketAnalyticsV2() {
   };
 
   const formatPrice = (price: bigint) => {
-    return (Number(price) / 10 ** 18).toFixed(4);
+    // Price is now in token format (0-100 range), format with 2 decimals
+    const tokenPrice = Number(price) / 10 ** 18;
+    return tokenPrice.toFixed(2);
+  };
+
+  const calculateProbability = (tokenPrice: bigint): number => {
+    // Convert token price (0-100) to probability percentage (0-100)
+    const price = Number(tokenPrice) / 10 ** 18;
+    return Math.max(0, Math.min(100, price)); // Clamp to 0-100 range
   };
 
   const getCategoryName = (category: number) => {
@@ -437,10 +293,8 @@ export function MarketAnalyticsV2() {
             variant="outline"
             size="sm"
             onClick={() => {
-              fetchMarketsList();
-              if (selectedMarketId !== null) {
-                fetchMarketAnalytics(selectedMarketId);
-              }
+              refetchMarkets();
+              if (selectedMarketId !== null) refetchSelectedMarket();
             }}
             className="flex items-center gap-2"
           >

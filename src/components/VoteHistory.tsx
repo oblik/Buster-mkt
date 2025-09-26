@@ -21,7 +21,7 @@ const CACHE_KEY = "vote_history_cache_v6"; // Updated for V2 support
 const CACHE_TTL = 60 * 60; // 1 hour in seconds
 const PAGE_SIZE = 50; // Votes per contract call
 
-// V1 Vote interface (legacy)
+// V1 Vote interface (legacy))
 interface Vote {
   marketId: number;
   isOptionA: boolean;
@@ -167,12 +167,16 @@ export function VoteHistory() {
   const fetchV2Trades = async (address: Address): Promise<V2Trade[]> => {
     try {
       // Get user portfolio to find trade count
-      const portfolio = (await publicClient.readContract({
+      const portfolioParams: any = {
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "getUserPortfolio",
         args: [address],
-      })) as {
+      };
+
+      const portfolio = (await (publicClient.readContract as any)(
+        portfolioParams
+      )) as {
         totalInvested: bigint;
         totalWinnings: bigint;
         unrealizedPnL: bigint;
@@ -188,12 +192,16 @@ export function VoteHistory() {
       const trades: V2Trade[] = [];
       for (let i = 0; i < tradeCount; i++) {
         try {
-          const trade = (await publicClient.readContract({
+          const tradeParams: any = {
             address: V2contractAddress,
             abi: V2contractAbi,
             functionName: "userTradeHistory",
             args: [address, BigInt(i)],
-          })) as [bigint, bigint, string, string, bigint, bigint, bigint];
+          };
+
+          const trade = (await (publicClient.readContract as any)(
+            tradeParams
+          )) as [bigint, bigint, string, string, bigint, bigint, bigint];
 
           trades.push({
             marketId: trade[0],
@@ -206,6 +214,13 @@ export function VoteHistory() {
           });
         } catch (error) {
           console.error(`Failed to fetch trade ${i}:`, error);
+          // If we get a contract revert, it likely means we've reached the end of available trades
+          if (
+            (error as any)?.message?.includes("reverted") ||
+            (error as any)?.message?.includes("ContractFunctionRevertedError")
+          ) {
+            break;
+          }
         }
       }
 
@@ -264,31 +279,30 @@ export function VoteHistory() {
     if (uncachedV2Ids.length > 0) {
       for (const marketId of uncachedV2Ids) {
         try {
-          const marketInfo = (await publicClient.readContract({
+          const marketBasicInfo = (await publicClient.readContract({
             address: V2contractAddress,
             abi: V2contractAbi,
-            functionName: "getMarketInfo",
+            functionName: "getMarketBasicInfo",
             args: [BigInt(marketId)],
-          })) as unknown as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            bigint,
-            string
+          })) as [
+            string, // question
+            string, // description
+            bigint, // endTime
+            number, // category
+            bigint, // optionCount
+            boolean, // resolved
+            number, // marketType
+            boolean, // invalidated
+            bigint // totalVolume
           ];
 
-          const [question] = marketInfo;
+          const [question, , , , optionCount] = marketBasicInfo;
 
-          // We need to get the options separately since getMarketInfo doesn't return them
+          // We need to get the options separately since getMarketBasicInfo doesn't return them
           // Let's get the option count first, then fetch each option
-          const optionCount = Number(marketInfo[4]); // optionCount is the 5th element
           const options: string[] = [];
 
-          for (let optionId = 0; optionId < optionCount; optionId++) {
+          for (let optionId = 0; optionId < Number(optionCount); optionId++) {
             try {
               const optionInfo = (await publicClient.readContract({
                 address: V2contractAddress,
@@ -378,12 +392,18 @@ export function VoteHistory() {
         // Convert V2 trades to display format
         const displayV2Trades: DisplayVote[] = v2Trades.map((trade) => {
           const marketInfo = marketInfoCache[`v2_${Number(trade.marketId)}`];
-          const isBuy = trade.buyer.toLowerCase() === address.toLowerCase();
+          const isBuy =
+            trade.buyer && address
+              ? trade.buyer.toLowerCase() === address.toLowerCase()
+              : false;
           return {
             marketId: Number(trade.marketId),
-            option: marketInfo.options[Number(trade.optionId)],
+            option:
+              marketInfo?.options?.[Number(trade.optionId)] ||
+              `Option ${Number(trade.optionId) + 1}`,
             amount: trade.quantity, // Use quantity instead of amount
-            marketName: marketInfo.question,
+            marketName:
+              marketInfo?.question || `Market ${Number(trade.marketId)}`,
             timestamp: trade.timestamp,
             type: isBuy ? "buy" : "sell",
             version: "v2" as const,

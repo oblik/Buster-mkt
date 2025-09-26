@@ -2,7 +2,7 @@
 
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   BaseError,
   useAccount,
@@ -19,6 +19,8 @@ import {
   tokenAddress,
   tokenAbi,
   publicClient,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { decodeErrorResult, encodeFunctionData } from "viem";
 import { Loader2 } from "lucide-react";
@@ -26,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { MarketV2 } from "@/types/types";
 import { ValidationNotice } from "./ValidationNotice";
+import { FreeTokenClaimButton } from "./FreeTokenClaimButton";
 
 interface MarketV2BuyInterfaceProps {
   marketId: number;
@@ -41,23 +44,57 @@ type BuyingStep =
   | "purchaseSuccess";
 
 const MAX_BET = 50000000000000000000000000000000;
+const MAX_SHARES = 1000;
 
-// Convert amount to token units (handles custom decimals)
-function toUnits(amount: string, decimals: number): bigint {
-  const [integer = "0", fraction = ""] = amount.split(".");
-  const paddedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
-  return (
-    BigInt(integer + paddedFraction) *
-    BigInt(10) ** BigInt(decimals - paddedFraction.length)
-  );
+// Convert shares to 1e18 units (shares have 18 decimals regardless of token decimals)
+function sharesToWei(amount: string): bigint {
+  if (!amount) return 0n;
+  const parts = amount.split(".");
+  const integer = parts[0] || "0";
+  const fraction = (parts[1] || "").padEnd(18, "0").slice(0, 18);
+  return BigInt(integer + fraction);
 }
 
-// Format price with proper decimals
-function formatPrice(price: bigint, decimals: number = 18): string {
-  const formatted = Number(price) / Math.pow(10, decimals);
-  if (formatted < 0.01) return formatted.toFixed(4);
-  if (formatted < 1) return formatted.toFixed(3);
-  return formatted.toFixed(2);
+// Helper: probability/price conversions
+function calculateProbabilityFromTokenPrice(tokenPrice: bigint): number {
+  // tokenPrice is tokens/share (1e18), which equals prob * 100
+  const tp = Number(tokenPrice) / 1e18; // 0..100
+  return Math.max(0, Math.min(100, tp)); // percentage
+}
+
+function calculateOddsFromTokenPrice(tokenPrice: bigint): number {
+  // prob = tokenPrice / 100
+  const tp = Number(tokenPrice) / 1e18; // 0..100
+  const prob = tp / 100; // 0..1
+  if (prob <= 0) return 0;
+  return 1 / prob;
+}
+
+// Fix TS bigints
+function probabilityToTokenPrice(probability: bigint): bigint {
+  // 1 share pays out 100 tokens at resolution (1e18 scaled)
+  const PAYOUT_PER_SHARE = 100n * BigInt(1e18);
+  return (probability * PAYOUT_PER_SHARE) / BigInt(1e18);
+}
+
+// Convert a decimal string to token/base units with given decimals
+function toUnits(value: string, decimals: number): bigint {
+  if (!value) return 0n;
+  const [intPart, fracRaw = ""] = value.split(".");
+  const frac = fracRaw.padEnd(decimals, "0").slice(0, decimals);
+  const normalized = `${intPart || "0"}${frac}`.replace(/^0+(?=\d)/, "");
+  return normalized ? BigInt(normalized) : 0n;
+}
+
+// Format bigint token amount to human-readable string
+function formatPrice(amount: bigint, decimals = 18): string {
+  const negative = amount < 0n;
+  const x = negative ? -amount : amount;
+  const s = x.toString().padStart(decimals + 1, "0");
+  const int = s.slice(0, -decimals);
+  const fracRaw = s.slice(-decimals);
+  const frac = fracRaw.replace(/0+$/, "");
+  return `${negative ? "-" : ""}${frac ? `${int}.${frac}` : int}`;
 }
 
 export function MarketV2BuyInterface({
@@ -72,16 +109,36 @@ export function MarketV2BuyInterface({
   });
   const { toast } = useToast();
 
+  // Fetch market info (validated flag and type)
+  const { data: marketInfo } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "getMarketInfo",
+    args: [BigInt(marketId)],
+  });
+
+  // Get market odds directly from contract
+  const { data: marketOdds } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "getMarketOdds",
+    args: [BigInt(marketId)],
+  });
+
+  // Convert contract odds to array of bigints
+  const odds = (marketOdds as readonly bigint[]) || [];
+
   // Check if we're using Farcaster connector
   const isFarcasterConnector =
     connector?.id === "miniAppConnector" ||
     connector?.name?.includes("Farcaster");
 
   // Check if wallet supports batch transactions (EIP-5792)
+  // MetaMask now supports EIP-5792, only exclude wallets with known issues
   const supportseBatchTransactions =
-    isFarcasterConnector &&
-    !connector?.name?.includes("MetaMask") &&
-    !connector?.id?.includes("metaMask");
+    !!connector &&
+    !connector?.name?.includes("Ledger") &&
+    !connector?.id?.includes("ledger");
 
   const [isBuying, setIsBuying] = useState(false);
   const [containerHeight, setContainerHeight] = useState("auto");
@@ -99,6 +156,16 @@ export function MarketV2BuyInterface({
   const [isVisible, setIsVisible] = useState(true);
   const [isValidated, setIsValidated] = useState<boolean | null>(null); // null = checking, true = validated, false = not validated
 
+  // Reset function to completely reset the buying interface//
+  const resetBuyingInterface = useCallback(() => {
+    setSelectedOptionId(null);
+    setAmount("");
+    setBuyingStep("initial");
+    setIsBuying(false);
+    setIsProcessing(false);
+    setError(null);
+  }, []);
+
   // EIP-5792 batch calls
   const {
     sendCalls,
@@ -111,7 +178,15 @@ export function MarketV2BuyInterface({
     mutation: {
       onSuccess: (data) => {
         console.log("=== V2 BATCH TRANSACTION CALLBACK ===");
-        console.log("Batch transaction submitted with id:", data.id);
+        // Defensive: some connectors may return an unexpected shape
+        if (!data || typeof data !== "object" || !("id" in data)) {
+          console.warn(
+            "Batch transaction response missing .id, response:",
+            data
+          );
+        } else {
+          console.log("Batch transaction submitted with id:", data.id);
+        }
         toast({
           title: "Batch Transaction Submitted",
           description:
@@ -164,9 +239,17 @@ export function MarketV2BuyInterface({
     isError: callsStatusError,
     error: callsStatusErrorMsg,
   } = useWaitForCallsStatus({
-    id: callsData?.id as `0x${string}`,
+    // Defensive extraction to avoid reading .id of undefined
+    id:
+      callsData && typeof callsData === "object" && "id" in callsData
+        ? (callsData.id as `0x${string}`)
+        : undefined,
     query: {
-      enabled: !!callsData?.id,
+      enabled: !!(
+        callsData &&
+        typeof callsData === "object" &&
+        "id" in callsData
+      ),
       refetchInterval: 1000, // Check every second
     },
   });
@@ -189,7 +272,10 @@ export function MarketV2BuyInterface({
     abi: tokenAbi,
     functionName: "balanceOf",
     args: [accountAddress as `0x${string}`],
-    query: { enabled: !!accountAddress },
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 5000, // Refresh balance every 5 seconds
+    },
   });
 
   const { data: userAllowance } = useReadContract({
@@ -197,77 +283,86 @@ export function MarketV2BuyInterface({
     abi: tokenAbi,
     functionName: "allowance",
     args: [accountAddress as `0x${string}`, V2contractAddress],
-    query: { enabled: !!accountAddress },
+    query: {
+      enabled: !!accountAddress,
+      refetchInterval: 5000, // Refresh allowance every 5 seconds
+    },
   });
 
-  // Fetch current prices for selected option
+  // Fetch token prices directly from PolicastViews (ready for display)
+  const { data: tokenPrices, refetch: refetchTokenPrices } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "getMarketPricesInTokens",
+    args: [BigInt(marketId)],
+    query: {
+      refetchInterval: 2000, // Refresh every 2 seconds
+    },
+  });
+
+  // Fetch current prices for selected option with fresher data
   const { data: optionData, refetch: refetchOptionData } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketOption",
     args: [BigInt(marketId), BigInt(selectedOptionId || 0)],
-    query: { enabled: selectedOptionId !== null },
+    query: {
+      enabled: selectedOptionId !== null,
+      refetchInterval: 2000, // Refresh every 2 seconds for fresher price data
+    },
   });
 
-  // Fetch real-time AMM cost estimation for purchase amount
-  const { data: estimatedCost, refetch: refetchEstimatedCost } =
-    useReadContract({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "calculateAMMBuyCost",
-      args: [
-        BigInt(marketId),
-        BigInt(selectedOptionId || 0),
-        toUnits(amount || "0", tokenDecimals || 18),
-      ],
-      query: {
-        enabled:
-          selectedOptionId !== null &&
-          amount !== "" &&
-          amount !== null &&
-          parseFloat(amount || "0") > 0,
-      },
-    });
+  // Add: on-chain quote for accurate LMSR cost
+  const sharesInWei = useMemo(() => sharesToWei(amount), [amount]);
 
-  // Fetch market info for validation
-  const { data: marketInfo } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getMarketInfo",
-    args: [BigInt(marketId)],
+  const { data: buyQuote } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "quoteBuy",
+    args:
+      selectedOptionId === null
+        ? undefined
+        : [BigInt(marketId), BigInt(selectedOptionId), sharesInWei],
+    query: {
+      enabled: selectedOptionId !== null && sharesInWei > 0n,
+      refetchInterval: 2000,
+    },
   });
 
-  // Calculate slippage protection (5% slippage tolerance)
+  // Replace linear estimatedCost with on-chain LMSR quote
+  const estimatedCost = useMemo(() => {
+    if (!buyQuote) return 0n;
+    const [, , totalCost] = buyQuote as readonly [
+      bigint,
+      bigint,
+      bigint,
+      bigint
+    ];
+    return totalCost;
+  }, [buyQuote]);
+
+  // Calculate slippage protection (10% slippage tolerance)
   const calculateMaxPrice = useCallback((currentPrice: bigint): bigint => {
-    return (currentPrice * 105n) / 100n; // 5% slippage
+    return (currentPrice * 110n) / 100n; // 10% slippage
   }, []);
 
   // Check if market is validated
-  const checkMarketValidation = useCallback(async () => {
-    try {
-      // We'll try to simulate a purchase to see if it throws MarketNotValidated
-      await publicClient.estimateContractGas({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "buyShares",
-        args: [BigInt(marketId), BigInt(0), BigInt(1), BigInt(1000000)], // Try to buy 1 share of option 0 with max price 1000000
-        account: "0x0000000000000000000000000000000000000001", // Dummy account
-      });
-      setIsValidated(true); // If no error, market is validated
-    } catch (error: any) {
-      // Check if the error is specifically MarketNotValidated
-      if (
-        error?.message?.includes("MarketNotValidated") ||
-        error?.shortMessage?.includes("MarketNotValidated") ||
-        error?.details?.includes("MarketNotValidated")
-      ) {
-        setIsValidated(false);
-      } else {
-        // For other errors (like insufficient funds, invalid option, etc.), assume validated
-        setIsValidated(true);
-      }
+  const checkMarketValidation = useCallback(() => {
+    if (marketInfo && marketInfo.length > 8) {
+      // Check the validated field directly from market info (index 8 based on debug output)
+      const isValidated = marketInfo[8] as boolean;
+      console.log(
+        "Market validation check:",
+        isValidated,
+        "Market info:",
+        marketInfo
+      );
+      setIsValidated(isValidated);
+    } else {
+      // If marketInfo is not available yet, keep checking
+      setIsValidated(null);
     }
-  }, [marketId]);
+  }, [marketInfo]);
 
   // Handle direct purchase (for cases where approval already exists)
   const handleDirectPurchase = useCallback(async () => {
@@ -279,27 +374,35 @@ export function MarketV2BuyInterface({
     )
       return;
     try {
-      const amountInUnits = toUnits(amount, tokenDecimals);
+      const amountInUnits = sharesToWei(amount);
 
-      // Check balance
+      // Check balance using estimated cost instead of share amount
       if (!userBalance) {
         throw new Error("Unable to fetch balance. Please try again.");
       }
 
-      if (amountInUnits > userBalance) {
-        throw new Error(
-          `Insufficient balance. You have ${formatPrice(
-            userBalance,
-            tokenDecimals
-          )} ${tokenSymbol || "tokens"}`
-        );
-      }
-
-      // Calculate max price per share from estimated cost with slippage tolerance
-      const avgPricePerShare = estimatedCost
-        ? (estimatedCost * BigInt(1e18)) / amountInUnits
+      // Use estimated cost for balance check, fallback to approximate calculation if not available
+      const requiredBalance = estimatedCost; // from on-chain quote
+      const avgPricePerShare = buyQuote
+        ? ((buyQuote as any)[3] as bigint) // avg price per share incl. fee (1e18-scaled)
         : optionData?.[4] || 0n;
       const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
+      // 2% buffer for total bound to reduce revert from minor moves
+      const maxTotalCost = requiredBalance
+        ? (requiredBalance * 102n) / 100n
+        : requiredBalance;
+
+      console.log("=== V2 DIRECT PURCHASE DEBUG ===");
+      console.log("Market ID:", marketId);
+      console.log("Selected option ID:", selectedOptionId);
+      console.log("Amount in units:", amountInUnits.toString());
+      console.log("Estimated cost:", estimatedCost?.toString());
+      console.log("Required balance:", requiredBalance.toString());
+      console.log("User balance:", userBalance?.toString());
+      console.log("Avg price per share:", avgPricePerShare.toString());
+      console.log("Max price per share:", maxPricePerShare.toString());
+      console.log("Market info:", marketInfo);
+      console.log("Option data:", optionData);
 
       console.log("=== V2 BATCH PURCHASE ===");
       console.log("Amount in units:", amountInUnits.toString());
@@ -316,6 +419,7 @@ export function MarketV2BuyInterface({
           BigInt(selectedOptionId),
           amountInUnits,
           maxPricePerShare,
+          maxTotalCost,
         ],
       });
     } catch (err: unknown) {
@@ -383,6 +487,8 @@ export function MarketV2BuyInterface({
     amount,
     tokenDecimals,
     userBalance,
+    tokenSymbol,
+    estimatedCost,
     optionData,
     calculateMaxPrice,
     marketId,
@@ -402,38 +508,41 @@ export function MarketV2BuyInterface({
 
     try {
       setIsProcessing(true);
-      const amountInUnits = toUnits(amount, tokenDecimals);
+      const amountInUnits = sharesToWei(amount);
 
-      // Check balance
+      // Check balance using estimated cost instead of share amount
       if (!userBalance) {
         throw new Error("Unable to fetch balance. Please try again.");
       }
 
-      if (amountInUnits > userBalance) {
-        throw new Error(
-          `Insufficient balance. You have ${formatPrice(
-            userBalance,
-            tokenDecimals
-          )} ${tokenSymbol || "tokens"}`
-        );
-      }
-
-      const needsApproval = amountInUnits > (userAllowance || 0n);
+      // Use estimated cost for balance check, fallback to approximate calculation if not available
+      const requiredBalance = estimatedCost; // from on-chain quote
+      const avgPricePerShare = buyQuote
+        ? ((buyQuote as any)[3] as bigint) // avg price per share incl. fee (1e18-scaled)
+        : optionData?.[4] || 0n;
+      const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
+      // 2% buffer for total bound to reduce revert from minor moves
+      const maxTotalCost = requiredBalance
+        ? (requiredBalance * 102n) / 100n
+        : requiredBalance;
 
       console.log("=== V2 SEQUENTIAL PURCHASE ===");
       console.log("Amount in units:", amountInUnits.toString());
+      console.log("Required approval:", requiredBalance.toString());
+      const requiredApproval = requiredBalance;
+      const needsApproval = requiredApproval > (userAllowance || 0n);
       console.log("Needs approval:", needsApproval);
       console.log("Current allowance:", userAllowance?.toString());
 
       if (needsApproval) {
         setBuyingStep("allowance");
         console.log("Approving tokens...");
-        // First approve
+        // First approve - approve the estimated cost, not the share amount
         await writeContractAsync({
           address: tokenAddress,
           abi: tokenAbi,
           functionName: "approve",
-          args: [V2contractAddress, amountInUnits],
+          args: [V2contractAddress, requiredApproval],
         });
       } else {
         setBuyingStep("confirm");
@@ -457,6 +566,7 @@ export function MarketV2BuyInterface({
             BigInt(selectedOptionId),
             amountInUnits,
             maxPricePerShare,
+            maxTotalCost,
           ],
         });
       }
@@ -507,6 +617,9 @@ export function MarketV2BuyInterface({
     selectedOptionId,
     amount,
     tokenDecimals,
+    userBalance,
+    tokenSymbol,
+    estimatedCost,
     userAllowance,
     optionData,
     calculateMaxPrice,
@@ -526,24 +639,25 @@ export function MarketV2BuyInterface({
       return;
     try {
       setIsProcessing(true);
-      const amountInUnits = toUnits(amount, tokenDecimals);
+      const amountInUnits = sharesToWei(amount);
 
-      // Check balance
+      // Check balance using estimated cost instead of share amount
       if (!userBalance) {
         throw new Error("Unable to fetch balance. Please try again.");
       }
 
-      if (amountInUnits > userBalance) {
-        throw new Error(
-          `Insufficient balance. You have ${formatPrice(
-            userBalance,
-            tokenDecimals
-          )} ${tokenSymbol || "tokens"}`
-        );
-      }
-
+      // Use estimated cost for balance check, fallback to approximate calculation if not available
+      const requiredBalance = estimatedCost; // from on-chain quote
       const currentPrice = optionData?.[4] || 0n;
-      const maxPricePerShare = calculateMaxPrice(currentPrice);
+      // Get token price directly from PolicastViews (if available)
+      const tokenPriceFromContract =
+        tokenPrices?.[selectedOptionId || 0] || currentPrice;
+
+      // Calculate max price per share from estimated cost with slippage tolerance
+      const avgPricePerShare = estimatedCost
+        ? (estimatedCost * BigInt(1e18)) / amountInUnits
+        : tokenPriceFromContract;
+      const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
 
       console.log("=== V2 BATCH TRANSACTION DEBUG ===");
       console.log("Amount in units:", amountInUnits.toString());
@@ -553,19 +667,26 @@ export function MarketV2BuyInterface({
       console.log("Current allowance:", userAllowance?.toString());
       console.log("Is Farcaster connector:", isFarcasterConnector);
       console.log("Current price:", currentPrice.toString());
+      console.log("Estimated cost:", estimatedCost?.toString());
+      console.log("Avg price per share:", avgPricePerShare.toString());
       console.log("Max price per share:", maxPricePerShare.toString());
+
+      // Use estimated cost for approval, not the share amount
+      const approvalAmount =
+        estimatedCost || (amountInUnits * avgPricePerShare) / BigInt(1e18);
+      console.log("Approval amount:", approvalAmount.toString());
 
       const batchCalls = [
         {
-          to: tokenAddress,
+          to: tokenAddress as `0x${string}`,
           data: encodeFunctionData({
             abi: tokenAbi,
             functionName: "approve",
-            args: [V2contractAddress, amountInUnits],
+            args: [V2contractAddress, approvalAmount],
           }),
         },
         {
-          to: V2contractAddress,
+          to: V2contractAddress as `0x${string}`,
           data: encodeFunctionData({
             abi: V2contractAbi,
             functionName: "buyShares",
@@ -574,6 +695,7 @@ export function MarketV2BuyInterface({
               BigInt(selectedOptionId),
               amountInUnits,
               maxPricePerShare,
+              requiredBalance, // _maxTotalCost
             ],
           }),
         },
@@ -606,6 +728,8 @@ export function MarketV2BuyInterface({
     amount,
     tokenDecimals,
     userBalance,
+    tokenSymbol,
+    estimatedCost,
     optionData,
     calculateMaxPrice,
     marketId,
@@ -673,6 +797,27 @@ export function MarketV2BuyInterface({
       return;
     }
 
+    // Check maximum shares limit per purchase
+    if (parseFloat(amount) > MAX_SHARES) {
+      setError(`Maximum ${MAX_SHARES} shares allowed per purchase`);
+      return;
+    }
+
+    // Skip user shares check for now since getUserShares function doesn't exist
+    // if (userShares && selectedOptionId !== null) {
+    //   const currentShares =
+    //     Number(userShares[selectedOptionId] || 0n) / Math.pow(10, 18);
+    //   const newTotalShares = currentShares + parseFloat(amount);
+    //   if (newTotalShares > MAX_SHARES) {
+    //     setError(
+    //       `Cannot have more than ${MAX_SHARES} shares per option. You currently have ${currentShares} shares. Maximum additional purchase: ${
+    //         MAX_SHARES - currentShares
+    //       } shares.`
+    //     );
+    //     return;
+    //   }
+    // }
+
     // Check balance before proceeding
     if (!userBalance || !tokenDecimals) {
       setError("Unable to fetch balance. Please try again.");
@@ -730,6 +875,7 @@ export function MarketV2BuyInterface({
     }
   }, [
     amount,
+    selectedOptionId,
     userBalance,
     tokenDecimals,
     tokenSymbol,
@@ -772,7 +918,6 @@ export function MarketV2BuyInterface({
             console.log("✅ V2 Both transactions successful");
             setBuyingStep("purchaseSuccess");
             setAmount("");
-            setSelectedOptionId(null);
 
             toast({
               title: "Purchase Successful!",
@@ -820,7 +965,6 @@ export function MarketV2BuyInterface({
             );
             setBuyingStep("purchaseSuccess");
             setAmount("");
-            setSelectedOptionId(null);
             toast({
               title: "Purchase Successful!",
               description: `Successfully bought shares in ${
@@ -846,7 +990,6 @@ export function MarketV2BuyInterface({
             console.log("✅ V2 All receipts successful!");
             setBuyingStep("purchaseSuccess");
             setAmount("");
-            setSelectedOptionId(null);
             toast({
               title: "Purchase Successful!",
               description: `Successfully bought shares in ${
@@ -864,7 +1007,6 @@ export function MarketV2BuyInterface({
           console.log("Assuming success since batch status is 'success'");
           setBuyingStep("purchaseSuccess");
           setAmount("");
-          setSelectedOptionId(null);
           toast({
             title: "Purchase Successful!",
             description: `Successfully bought shares in ${
@@ -1037,6 +1179,7 @@ export function MarketV2BuyInterface({
             BigInt(selectedOptionId!),
             amountInUnits,
             maxPricePerShare,
+            estimatedCost || (amountInUnits * avgPricePerShare) / BigInt(1e18), // _maxTotalCost
           ],
         });
       } else {
@@ -1049,10 +1192,12 @@ export function MarketV2BuyInterface({
           }`,
         });
         setAmount("");
-        setSelectedOptionId(null);
         setIsBuying(false);
         refetchOptionData();
-        refetchEstimatedCost();
+        // Refresh token prices so UI reflects updated on-chain prices
+        if (typeof refetchTokenPrices === "function") {
+          refetchTokenPrices();
+        }
       }
     }
   }, [
@@ -1071,7 +1216,7 @@ export function MarketV2BuyInterface({
     market.options,
     toast,
     refetchOptionData,
-    refetchEstimatedCost,
+    refetchTokenPrices,
   ]);
 
   // Update container height
@@ -1098,12 +1243,16 @@ export function MarketV2BuyInterface({
   // Show validation notice if market is not validated
   if (isValidated === false) {
     return (
-      <div className="w-full">
-        <ValidationNotice
-          marketId={marketId}
-          status="pending"
-          message="This market is waiting for admin validation before accepting predictions. Please check back later."
-        />
+      <div className="w-full p-4 text-center bg-yellow-50 dark:bg-yellow-900/20 rounded-md border border-yellow-200 dark:border-yellow-700">
+        <div className="text-yellow-800 dark:text-yellow-200">
+          <h3 className="font-medium text-sm mb-2">
+            Market Pending Validation
+          </h3>
+          <p className="text-xs">
+            This market is waiting for admin validation before accepting
+            predictions. Please check back later.
+          </p>
+        </div>
       </div>
     );
   }
@@ -1111,58 +1260,100 @@ export function MarketV2BuyInterface({
   // Show loading state while checking validation
   if (isValidated === null) {
     return (
-      <div className="w-full p-4 text-center">
-        <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-        <p className="text-sm text-gray-600">Checking market status...</p>
+      <div className="w-full p-3 text-center bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700">
+        <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1 text-blue-500" />
+        <p className="text-xs text-gray-600 dark:text-gray-300">
+          Checking market status...
+        </p>
       </div>
     );
   }
+
+  // Check if this is a free market (marketType = 1)
+  const isFreeMarket =
+    marketInfo &&
+    marketInfo.length > 7 &&
+    typeof marketInfo[7] === "number" &&
+    marketInfo[7] === 1;
 
   return (
     <div
       className="w-full transition-all duration-300 ease-in-out overflow-visible"
       style={{ minHeight: containerHeight }}
     >
-      <div ref={contentRef} className="space-y-4">
+      <div ref={contentRef} className="space-y-1">
+        {/* Free Token Claim Section - Show for free markets */}
+        {isFreeMarket && (
+          <div className="mb-1">
+            <FreeTokenClaimButton
+              marketId={marketId}
+              onClaimComplete={() => {
+                // Refresh market data after claiming
+                // Optionally show a success message or update UI
+              }}
+            />
+          </div>
+        )}
+
         {!isBuying ? (
           // Initial state - option selection
-          <div className="space-y-3">
-            <h4 className="text-sm font-medium text-gray-700">
-              Select an option:
-            </h4>
-            <div className="grid gap-2">
+          <div className="space-y-1">
+            <div className="px-1">
+              <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
+                Select an option:
+              </h4>
+            </div>
+
+            <div className="grid gap-1">
               {market.options.map((option, index) => {
-                const currentPrice = formatPrice(option.currentPrice);
+                // Use token price from PolicastViews if available, fallback to option.currentPrice
+                const tokenPrice = tokenPrices?.[index] || option.currentPrice;
+                const probability =
+                  calculateProbabilityFromTokenPrice(tokenPrice);
+                const oddsFormatted =
+                  odds.length > 0
+                    ? Number(odds[index] || 0n) / 1e18
+                    : calculateOddsFromTokenPrice(tokenPrice);
                 const isSelected = selectedOptionId === index;
 
                 return (
                   <button
                     key={index}
-                    onClick={() => setSelectedOptionId(index)}
+                    onClick={() => {
+                      setSelectedOptionId(index);
+                      // Reset buying state when selecting a new option
+                      if (buyingStep !== "initial" || isBuying) {
+                        resetBuyingInterface();
+                        // Then set the new option after reset
+                        setTimeout(() => setSelectedOptionId(index), 0);
+                      }
+                    }}
                     className={cn(
-                      "p-3 rounded-lg border-2 text-left transition-all duration-200",
+                      "w-full p-1.5 rounded-md border text-left transition-all duration-200",
+                      "focus:outline-none focus:ring-1 focus:ring-blue-500",
                       isSelected
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400"
+                        : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
                     )}
                   >
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-medium text-gray-900">
+                    <div className="flex justify-between items-center gap-1">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
                           {option.name}
                         </p>
-                        {option.description && (
-                          <p className="text-xs text-gray-500 truncate">
-                            {option.description}
-                          </p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-gray-900">
-                          {currentPrice} {tokenSymbol}
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {probability.toFixed(1)}% •{" "}
+                          {odds.length > 0
+                            ? (Number(odds[index] || 0n) / 1e18).toFixed(2)
+                            : calculateOddsFromTokenPrice(tokenPrice).toFixed(
+                                2
+                              )}
+                          x odds
                         </p>
-                        <p className="text-xs text-gray-500">
-                          {formatPrice(option.totalShares)} shares
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                          {probability.toFixed(1)}%
                         </p>
                       </div>
                     </div>
@@ -1171,84 +1362,183 @@ export function MarketV2BuyInterface({
               })}
             </div>
 
-            <Button
-              onClick={handlePurchase}
-              disabled={selectedOptionId === null || !isConnected}
-              className="w-full"
-            >
-              {!isConnected ? "Connect Wallet" : "Buy Shares"}
-            </Button>
+            <div className="pt-1">
+              <Button
+                onClick={handlePurchase}
+                disabled={selectedOptionId === null || !isConnected}
+                className="w-full h-8 text-xs font-medium"
+                size="sm"
+              >
+                {!isConnected ? "Connect Wallet" : "Buy Shares"}
+              </Button>
+            </div>
           </div>
         ) : (
           // Buying flow
-          <div
-            className="space-y-4"
-            style={{
-              maxHeight: "70vh",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+          <div className="space-y-2 max-h-[70vh] flex flex-col">
             {buyingStep === "amount" && (
               <>
-                <div className="text-center">
-                  <h4 className="text-sm font-medium text-gray-700">
+                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-md p-1.5 text-center border border-gray-200 dark:border-gray-700">
+                  <h4 className="text-xs font-medium text-gray-800 dark:text-gray-200">
                     Buying: {market.options[selectedOptionId!]?.name}
                   </h4>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
                     Current price:{" "}
-                    {formatPrice(
-                      market.options[selectedOptionId!]?.currentPrice
-                    )}{" "}
-                    {tokenSymbol}
+                    <span className="font-medium">
+                      {formatPrice(
+                        market.options[selectedOptionId!]?.currentPrice
+                      )}{" "}
+                      {tokenSymbol}
+                    </span>
                   </p>
                 </div>
-                <div className="overflow-y-auto flex-grow">
-                  <Input
-                    ref={inputRef}
-                    type="number"
-                    placeholder={`Amount of shares to buy`}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full"
-                  />
+
+                <div className="flex-grow overflow-y-auto space-y-1.5">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-0.5">
+                      Number of shares
+                    </label>
+                    <Input
+                      ref={inputRef}
+                      type="number"
+                      placeholder={`Enter amount (max ${MAX_SHARES})`}
+                      value={amount}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        // Allow empty string for clearing the input
+                        if (value === "") {
+                          setAmount("");
+                          setError(null);
+                          return;
+                        }
+
+                        const numValue = parseFloat(value);
+
+                        // Check for maximum shares limit per purchase
+                        if (numValue > MAX_SHARES) {
+                          setError(
+                            `Maximum ${MAX_SHARES} shares allowed per purchase`
+                          );
+                          setAmount(value); // Still allow typing to show the error
+                          return;
+                        }
+
+                        // Check combined shares limit (current + new)
+                        // Skip user shares check for now since getUserShares function doesn't exist
+                        // if (userShares && selectedOptionId !== null) {
+                        //   const currentShares =
+                        //     Number(userShares[selectedOptionId] || 0n) /
+                        //     Math.pow(10, 18);
+                        //   const newTotal = currentShares + numValue;
+                        //   if (newTotal > MAX_SHARES) {
+                        //     setError(
+                        //       `Total shares cannot exceed ${MAX_SHARES}. You have ${currentShares} shares. Max additional: ${
+                        //         MAX_SHARES - currentShares
+                        //       }`
+                        //     );
+                        //     setAmount(value);
+                        //     return;
+                        //   }
+                        // }
+
+                        setError(null);
+                        setAmount(value);
+                      }}
+                      max={MAX_SHARES}
+                      className="w-full h-8 text-xs bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+
                   {userBalance && tokenDecimals && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Balance: {formatPrice(userBalance, tokenDecimals)}{" "}
-                      {tokenSymbol}
-                    </p>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-1.5 space-y-0.5 border border-blue-200 dark:border-blue-800">
+                      <div className="text-xs space-y-0.5">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            Your balance:
+                          </span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {formatPrice(userBalance, tokenDecimals)}{" "}
+                            {tokenSymbol}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            Max per purchase:
+                          </span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {MAX_SHARES} shares
+                          </span>
+                        </div>
+                        {/* Skip user shares display for now since getUserShares function doesn't exist */}
+                        {/* {userShares && selectedOptionId !== null && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-600 dark:text-gray-400">
+                              Current shares:
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">
+                              {formatPrice(
+                                userShares[selectedOptionId] || 0n,
+                                18
+                              )}
+                            </span>
+                          </div>
+                        )} */}
+                      </div>
+                    </div>
                   )}
+
                   {estimatedCost && amount && parseFloat(amount) > 0 && (
-                    <div className="text-sm text-gray-600 mt-2 p-2 bg-gray-50 rounded">
-                      <div className="flex justify-between">
-                        <span>Shares:</span>
-                        <span>{amount}</span>
-                      </div>
-                      <div className="flex justify-between font-medium">
-                        <span>Total Cost:</span>
-                        <span>
-                          {formatPrice(estimatedCost)} {tokenSymbol}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-xs text-gray-500">
-                        <span>Avg Price/Share:</span>
-                        <span>
-                          {formatPrice(
-                            estimatedCost /
-                              BigInt(
-                                Math.floor(
-                                  parseFloat(amount) * Math.pow(10, 18)
+                    <div className="bg-gray-50 dark:bg-gray-800/80 rounded-md p-1.5 border border-gray-200 dark:border-gray-700">
+                      <h5 className="text-xs font-medium text-gray-800 dark:text-gray-200 mb-0.5">
+                        Purchase Summary
+                      </h5>
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            Shares:
+                          </span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {amount}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs font-semibold border-t border-gray-200 dark:border-gray-600 pt-0.5">
+                          <span className="text-gray-800 dark:text-gray-200">
+                            Total Cost:
+                          </span>
+                          <span className="text-gray-900 dark:text-gray-100">
+                            {formatPrice(estimatedCost)} {tokenSymbol}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500 dark:text-gray-400">
+                            Avg Price/Share:
+                          </span>
+                          <span className="text-gray-700 dark:text-gray-300">
+                            {formatPrice(
+                              estimatedCost /
+                                BigInt(
+                                  Math.floor(
+                                    parseFloat(amount) * Math.pow(10, 18)
+                                  )
                                 )
-                              )
-                          )}{" "}
-                          {tokenSymbol}
-                        </span>
+                            )}{" "}
+                            {tokenSymbol}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
-                {error && <p className="text-sm text-red-600">{error}</p>}
-                <div className="flex space-x-2 sticky bottom-0 bg-white pt-2 mt-2">
+
+                {error && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-1.5">
+                    <p className="text-xs text-red-700 dark:text-red-400">
+                      {error}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky bottom-0">
                   <Button
                     onClick={() => {
                       setIsBuying(false);
@@ -1256,14 +1546,19 @@ export function MarketV2BuyInterface({
                       setError(null);
                     }}
                     variant="outline"
-                    className="flex-1"
+                    className="flex-1 h-8 text-xs border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
                   >
                     Cancel
                   </Button>
                   <Button
                     onClick={handleConfirmPurchase}
-                    disabled={!amount || parseFloat(amount) <= 0}
-                    className="flex-1"
+                    disabled={
+                      !amount ||
+                      parseFloat(amount) <= 0 ||
+                      parseFloat(amount) > MAX_SHARES ||
+                      !!error
+                    }
+                    className="flex-1 h-8 text-xs font-medium"
                   >
                     Confirm
                   </Button>
@@ -1272,32 +1567,33 @@ export function MarketV2BuyInterface({
             )}
 
             {(buyingStep === "allowance" || buyingStep === "confirm") && (
-              <div className="text-center space-y-2">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                <p className="text-sm text-gray-600">
-                  {buyingStep === "allowance"
-                    ? "Approving tokens..."
-                    : "Processing purchase..."}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {market.options[selectedOptionId!]?.name} • {amount}{" "}
-                  {tokenSymbol}
-                </p>
+              <div className="text-center py-4 space-y-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-500" />
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                    {buyingStep === "allowance"
+                      ? "Approving tokens..."
+                      : "Processing purchase..."}
+                  </p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    {market.options[selectedOptionId!]?.name} • {amount} shares
+                  </p>
+                </div>
               </div>
             )}
 
             {buyingStep === "batchPartialSuccess" && (
-              <div className="text-center space-y-2">
-                <p className="text-sm text-amber-600">
+              <div className="text-center py-3 space-y-2 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
                   Approval successful, but purchase failed.
                 </p>
                 <Button
                   onClick={handleSequentialPurchase}
-                  className="w-full"
+                  className="w-full h-9 text-xs font-medium"
                   disabled={isProcessing}
                 >
                   {isProcessing && (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
                   )}
                   Retry Purchase
                 </Button>
@@ -1305,16 +1601,29 @@ export function MarketV2BuyInterface({
             )}
 
             {buyingStep === "purchaseSuccess" && (
-              <div className="text-center space-y-2">
-                <p className="text-sm text-green-600 font-medium">
+              <div className="text-center py-3 space-y-2 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
+                <div className="w-8 h-8 bg-green-100 dark:bg-green-800 rounded-full flex items-center justify-center mx-auto">
+                  <svg
+                    className="w-4 h-4 text-green-600 dark:text-green-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
                   Purchase successful!
                 </p>
                 <Button
-                  onClick={() => {
-                    setIsBuying(false);
-                    setBuyingStep("initial");
-                  }}
-                  className="w-full"
+                  onClick={resetBuyingInterface}
+                  className="w-full h-9 text-xs font-medium"
+                  variant="default"
                 >
                   Buy More
                 </Button>
@@ -1326,3 +1635,4 @@ export function MarketV2BuyInterface({
     </div>
   );
 }
+//new

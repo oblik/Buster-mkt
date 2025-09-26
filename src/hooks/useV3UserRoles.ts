@@ -1,5 +1,10 @@
 import { useAccount, useReadContract } from "wagmi";
-import { V2contractAddress, V2contractAbi } from "@/constants/contract";
+import {
+  V2contractAddress,
+  V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
+} from "@/constants/contract";
 import { useState } from "react";
 
 interface UserV3Roles {
@@ -28,8 +33,8 @@ export function useV3UserRoles(): UserV3Roles {
 
   // Check if user is fee collector
   const { data: platformStats } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
     functionName: "getPlatformStats",
     query: { enabled: isConnected },
   });

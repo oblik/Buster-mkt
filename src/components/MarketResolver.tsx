@@ -3,14 +3,17 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   useAccount,
-  useReadContract,
   useWriteContract,
   useWaitForTransactionReceipt,
+  useReadContract,
 } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/use-toast";
 import {
   V2contractAddress,
   V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
   publicClient,
 } from "@/constants/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +39,7 @@ import {
 } from "lucide-react";
 import { useUserRoles } from "@/hooks/useUserRoles";
 import Link from "next/link";
+import { formatPrice } from "@/lib/utils";
 
 interface MarketInfo {
   marketId: number;
@@ -51,6 +55,7 @@ interface MarketInfo {
   options: string[];
   totalShares: bigint[];
   canResolve: boolean;
+  earlyResolutionAllowed: boolean;
 }
 
 export function MarketResolver() {
@@ -66,13 +71,97 @@ export function MarketResolver() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState<
     "all" | "ready" | "resolved" | "disputed"
-  >("ready");
+  >("all"); // Changed default from "ready" to "all"
 
+  // Get market count from contract
   const { data: marketCount } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
     functionName: "getMarketCount",
-    query: { enabled: isConnected },
+    query: {
+      enabled: isConnected,
+    },
+  });
+
+  // Markets are loaded directly from the contract
+  const {
+    data: marketsData,
+    isLoading: isLoadingMarkets,
+    error: marketsError,
+    refetch: refetchMarkets,
+  } = useQuery({
+    queryKey: ["marketsList", marketCount ? Number(marketCount) : 0],
+    queryFn: async () => {
+      if (!marketCount) return [];
+
+      console.log("Fetching markets from contract...", Number(marketCount)); // Debug log
+
+      const markets = [];
+      const count = Number(marketCount);
+
+      // Fetch markets in batches to avoid RPC limits
+      for (let i = 0; i < count; i++) {
+        try {
+          const marketInfo = await publicClient.readContract({
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
+            functionName: "getMarketInfo",
+            args: [BigInt(i)],
+          });
+
+          const marketStatus = await publicClient.readContract({
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
+            functionName: "getMarketStatus",
+            args: [BigInt(i)],
+          });
+
+          const earlyResolutionAllowed = await publicClient.readContract({
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
+            functionName: "getMarketEarlyResolutionAllowed",
+            args: [BigInt(i)],
+          });
+
+          // Convert BigInt values to numbers/strings for JSON serialization
+          const serializedMarketInfo = [
+            marketInfo[0], // title (string)
+            marketInfo[1], // description (string)
+            Number(marketInfo[2]), // endTime (convert BigInt to number)
+            Number(marketInfo[3]), // category (convert BigInt to number)
+            Number(marketInfo[4]), // optionCount (convert BigInt to number)
+            marketInfo[5], // resolved (boolean)
+            marketInfo[6], // resolvedOutcome (boolean)
+            Number(marketInfo[7]), // marketType (convert BigInt to number)
+            marketInfo[8], // invalidated (boolean)
+            Number(marketInfo[9]), // totalVolume (convert BigInt to number)
+          ];
+
+          const serializedMarketStatus = [
+            marketStatus[0], // isActive (boolean)
+            marketStatus[1], // isResolved (boolean)
+            marketStatus[2], // isExpired (boolean)
+            marketStatus[3], // canTrade (boolean)
+            marketStatus[4], // canResolve (boolean)
+            Number(marketStatus[5]), // timeRemaining (convert BigInt to number)
+          ];
+
+          markets.push({
+            id: i,
+            marketInfo: serializedMarketInfo,
+            marketStatus: serializedMarketStatus,
+            earlyResolutionAllowed: Boolean(earlyResolutionAllowed),
+          });
+        } catch (error) {
+          console.error(`Error fetching market ${i}:`, error);
+        }
+      }
+
+      console.log("Contract response:", markets); // Debug log
+      return markets;
+    },
+    enabled: isConnected && !!marketCount,
+    refetchInterval: 30000,
   });
 
   const { writeContract, data: hash, error, isPending } = useWriteContract();
@@ -82,123 +171,188 @@ export function MarketResolver() {
       hash,
     });
 
-  const fetchMarkets = useCallback(async () => {
-    if (!marketCount || !isConnected) return;
-
-    setIsLoading(true);
-    try {
-      const count = Number(marketCount);
-      const marketPromises: Promise<MarketInfo | null>[] = [];
-
-      for (let i = 0; i < count; i++) {
-        marketPromises.push(fetchMarketInfo(i));
+  // Map contract markets to local MarketInfo shape
+  useEffect(() => {
+    const mapMarkets = (items: any[] | undefined) => {
+      console.log("Mapping markets from contract:", items); // Debug log
+      if (!items) {
+        setIsLoading(false);
+        return;
       }
+      setIsLoading(true);
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const mapped: MarketInfo[] = items.map((item) => {
+          const { marketInfo, marketStatus, earlyResolutionAllowed } = item;
+          const [
+            title,
+            description,
+            endTime,
+            category,
+            optionCount,
+            resolved,
+            resolvedOutcome,
+            marketType,
+            invalidated,
+            totalVolume,
+          ] = marketInfo;
 
-      const results = await Promise.all(marketPromises);
-      const validMarkets = results.filter(
-        (market): market is MarketInfo => market !== null
-      );
+          const [
+            isActive,
+            isResolved,
+            isExpired,
+            canTrade,
+            canResolve,
+            timeRemaining,
+          ] = marketStatus;
 
-      setMarkets(validMarkets);
-    } catch (error) {
-      console.error("Error fetching markets:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load markets.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [marketCount, isConnected, toast]);
+          return {
+            marketId: item.id,
+            question: title,
+            description: description || "",
+            endTime: BigInt(endTime), // endTime is already a number
+            category: category, // category is already a number
+            optionCount: BigInt(optionCount), // optionCount is already a number
+            resolved: Boolean(resolved),
+            disputed: false, // Not available in basic info
+            winningOptionId: 0n, // Would need additional call to get this
+            creator: "", // Would need additional call to get this
+            options: [], // Would need additional calls to get option names
+            totalShares: Array(optionCount).fill(0n), // optionCount is already a number
+            canResolve: Boolean(canResolve),
+            earlyResolutionAllowed: Boolean(earlyResolutionAllowed), // Now using actual value
+          } as MarketInfo;
+        });
 
-  const fetchMarketInfo = async (
-    marketId: number
-  ): Promise<MarketInfo | null> => {
-    try {
-      // Get market info
-      const marketInfo = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketInfo",
-        args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        boolean,
-        bigint,
-        string
-      ];
-
-      const [
-        question,
-        description,
-        endTime,
-        category,
-        optionCount,
-        resolved,
-        disputed,
-        invalidated,
-        winningOptionId,
-        creator,
-      ] = marketInfo;
-
-      // Get option details
-      const options: string[] = [];
-      const totalShares: bigint[] = [];
-
-      for (let optionId = 0; optionId < Number(optionCount); optionId++) {
-        const optionInfo = (await publicClient.readContract({
-          address: V2contractAddress,
-          abi: V2contractAbi,
-          functionName: "getMarketOption",
-          args: [BigInt(marketId), BigInt(optionId)],
-        })) as [string, string, bigint, bigint, bigint, boolean];
-
-        options.push(optionInfo[0]);
-        totalShares.push(optionInfo[2]);
+        console.log("Mapped markets:", mapped); // Debug log
+        setMarkets(mapped);
+      } catch (err) {
+        console.error("Error mapping markets:", err);
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      const now = Math.floor(Date.now() / 1000);
-      const canResolve = Number(endTime) <= now && !resolved;
+    mapMarkets((marketsData as any) || undefined);
+  }, [marketsData]);
 
-      return {
-        marketId,
-        question,
-        description,
-        endTime,
-        category,
-        optionCount,
-        resolved,
-        disputed,
-        winningOptionId,
-        creator,
-        options,
-        totalShares,
-        canResolve,
-      };
-    } catch (error) {
-      console.error(`Error fetching market ${marketId}:`, error);
-      return null;
-    }
-  };
+  // Details for a single selected market can be fetched from the contract when needed
+  const { data: selectedMarketEntity, refetch: refetchSelectedMarket } =
+    useQuery({
+      queryKey: ["market", selectedMarket?.marketId ?? null],
+      queryFn: async () => {
+        if (!selectedMarket) return null;
+
+        try {
+          const marketInfo = await publicClient.readContract({
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
+            functionName: "getMarketInfo",
+            args: [BigInt(selectedMarket.marketId)],
+          });
+
+          const creator = await publicClient.readContract({
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
+            functionName: "getMarketCreator",
+            args: [BigInt(selectedMarket.marketId)],
+          });
+
+          const earlyResolution = await publicClient.readContract({
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
+            functionName: "getMarketEarlyResolutionAllowed",
+            args: [BigInt(selectedMarket.marketId)],
+          });
+
+          // Get option names
+          const optionCount = Number(marketInfo[4]);
+          const options = [];
+          for (let i = 0; i < optionCount; i++) {
+            const optionData = await publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketOption",
+              args: [BigInt(selectedMarket.marketId), BigInt(i)],
+            });
+            options.push(optionData[0]); // option name
+          }
+
+          // Convert BigInt values to serializable format
+          const serializedMarketInfo = [
+            marketInfo[0], // title (string)
+            marketInfo[1], // description (string)
+            Number(marketInfo[2]), // endTime
+            Number(marketInfo[3]), // category
+            Number(marketInfo[4]), // optionCount
+            marketInfo[5], // resolved (boolean)
+            marketInfo[6], // resolvedOutcome (boolean)
+            Number(marketInfo[7]), // marketType
+            marketInfo[8], // invalidated (boolean)
+            Number(marketInfo[9]), // totalVolume
+          ];
+
+          return {
+            marketInfo: serializedMarketInfo,
+            creator: creator as string,
+            earlyResolution: Boolean(earlyResolution),
+            options: options as string[],
+          };
+        } catch (error) {
+          console.error("Error fetching selected market:", error);
+          return null;
+        }
+      },
+      enabled: !!selectedMarket,
+    });
 
   useEffect(() => {
-    if (isConnected && marketCount) {
-      fetchMarkets();
-    }
-  }, [isConnected, marketCount, fetchMarkets]);
+    if (!selectedMarketEntity) return;
+    // merge details from the contract calls
+    setSelectedMarket((prev) => {
+      if (!prev) return prev;
+      const { marketInfo, creator, earlyResolution, options } =
+        selectedMarketEntity;
+      const resolved = Boolean(marketInfo[5]);
+
+      return {
+        ...prev,
+        creator: creator || prev.creator,
+        options: options || prev.options,
+        resolved,
+        totalShares: Array(options?.length || 0).fill(0n),
+        earlyResolutionAllowed: Boolean(earlyResolution),
+      };
+    });
+  }, [selectedMarketEntity]);
+
+  useEffect(() => {
+    // markets are loaded via React Query; no on-chain count/fetch loop required
+  }, [isConnected]);
 
   const handleResolveMarket = async () => {
     if (!selectedMarket || !winningOptionId || !hasResolverAccess) return;
 
+    // Check early resolution constraints
+    if (selectedMarket.earlyResolutionAllowed) {
+      const now = Math.floor(Date.now() / 1000);
+      const endTime = Number(selectedMarket.endTime);
+      const timeUntilEnd = endTime - now;
+
+      // Must be at least 1 hour before end time for early resolution
+      if (timeUntilEnd < 3600) {
+        toast({
+          title: "Cannot Resolve Early",
+          description:
+            "Event-based markets must be resolved at least 1 hour before the scheduled end time.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     try {
-      await writeContract({
+      await (writeContract as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "resolveMarket",
@@ -221,7 +375,7 @@ export function MarketResolver() {
     if (!selectedMarket || !disputeReason.trim() || !hasResolverAccess) return;
 
     try {
-      await writeContract({
+      await (writeContract as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
         functionName: "disputeMarket",
@@ -364,8 +518,23 @@ export function MarketResolver() {
           </div>
 
           {/* Markets List */}
-          {isLoading ? (
+          {marketsError ? (
+            <div className="text-center py-8">
+              <AlertTriangle className="h-16 w-16 mx-auto text-red-400 mb-4" />
+              <h3 className="text-lg font-medium mb-2">
+                Error Loading Markets
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Failed to load markets from contract: {marketsError.message}
+              </p>
+              <Button onClick={() => refetchMarkets()}>Retry</Button>
+            </div>
+          ) : isLoading || isLoadingMarkets ? (
             <div className="space-y-4">
+              <div className="text-center py-4">
+                <Loader2 className="h-8 w-8 mx-auto animate-spin text-gray-400 mb-2" />
+                <p className="text-gray-600">Loading markets...</p>
+              </div>
               {[...Array(3)].map((_, i) => (
                 <div key={i} className="border rounded-lg p-4 animate-pulse">
                   <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
@@ -377,9 +546,18 @@ export function MarketResolver() {
             <div className="text-center py-8">
               <Clock className="h-16 w-16 mx-auto text-gray-400 mb-4" />
               <h3 className="text-lg font-medium mb-2">No Markets Found</h3>
-              <p className="text-gray-600">
+              <p className="text-gray-600 mb-4">
                 No markets match your current filter criteria.
+                {filter === "ready" &&
+                  " Try changing the filter to 'All Markets' to see all available markets."}
               </p>
+              <div className="text-xs text-gray-500 mt-4">
+                <p>Debug info:</p>
+                <p>Total markets loaded: {markets.length}</p>
+                <p>Current filter: {filter}</p>
+                <p>Search term: &ldquo;{searchTerm}&ldquo;</p>
+                <p>Connected: {isConnected ? "Yes" : "No"}</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -399,6 +577,14 @@ export function MarketResolver() {
                       </div>
                       <div className="flex items-center gap-2 ml-4">
                         {getStatusBadge(market)}
+                        {market.earlyResolutionAllowed && !market.resolved && (
+                          <Badge
+                            variant="outline"
+                            className="text-blue-600 border-blue-200"
+                          >
+                            Early Resolution
+                          </Badge>
+                        )}
                       </div>
                     </div>
 
@@ -425,7 +611,7 @@ export function MarketResolver() {
                         </span>
                         <p className="font-medium">
                           {market.totalShares.reduce(
-                            (sum, shares) => sum + Number(shares),
+                            (sum, shares) => sum + Number(formatPrice(shares)),
                             0
                           )}
                         </p>
@@ -443,10 +629,7 @@ export function MarketResolver() {
                           >
                             <span className="text-sm">{option}</span>
                             <div className="text-xs text-gray-500">
-                              {Number(
-                                market.totalShares[index]
-                              ).toLocaleString()}{" "}
-                              shares
+                              {formatPrice(market.totalShares[index])} shares
                               {market.resolved &&
                                 Number(market.winningOptionId) === index && (
                                   <CheckCircle className="inline h-3 w-3 ml-1 text-green-500" />
@@ -459,16 +642,21 @@ export function MarketResolver() {
 
                     {/* Action Buttons */}
                     <div className="flex items-center gap-2">
-                      {market.canResolve && !market.disputed && (
-                        <Button
-                          size="sm"
-                          onClick={() => setSelectedMarket(market)}
-                          className="flex items-center gap-2"
-                        >
-                          <Gavel className="h-4 w-4" />
-                          Resolve Market
-                        </Button>
-                      )}
+                      {(market.canResolve || market.earlyResolutionAllowed) &&
+                        !market.resolved &&
+                        !market.disputed && (
+                          <Button
+                            size="sm"
+                            onClick={() => setSelectedMarket(market)}
+                            className="flex items-center gap-2"
+                          >
+                            <Gavel className="h-4 w-4" />
+                            {market.earlyResolutionAllowed &&
+                            Number(market.endTime) * 1000 > Date.now()
+                              ? "Early Resolve"
+                              : "Resolve Market"}
+                          </Button>
+                        )}
 
                       {market.resolved && !market.disputed && (
                         <Button
@@ -528,9 +716,7 @@ export function MarketResolver() {
                       {selectedMarket.options.map((option, index) => (
                         <SelectItem key={index} value={index.toString()}>
                           {option} (
-                          {Number(
-                            selectedMarket.totalShares[index]
-                          ).toLocaleString()}{" "}
+                          {formatPrice(selectedMarket.totalShares[index])}{" "}
                           shares)
                         </SelectItem>
                       ))}

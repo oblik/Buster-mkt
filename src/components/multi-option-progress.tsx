@@ -2,8 +2,11 @@
 
 import { MarketOption } from "@/types/types";
 import { cn } from "@/lib/utils";
+import { useReadContract } from "wagmi";
+import { PolicastViews, PolicastViewsAbi } from "@/constants/contract";
 
 interface MultiOptionProgressProps {
+  marketId: number;
   options: MarketOption[];
   totalVolume: bigint;
   className?: string;
@@ -17,13 +20,23 @@ function formatPrice(price: bigint): string {
   return formatted.toFixed(2);
 }
 
-// Helper function to calculate percentage
-function calculatePercentage(
-  optionVolume: bigint,
-  totalVolume: bigint
-): number {
-  if (totalVolume === 0n) return 0;
-  return Number((optionVolume * 10000n) / totalVolume) / 100;
+// Helper function to format odds (odds come as multipliers from contract)
+function formatOdds(odds: bigint): string {
+  const oddsNumber = Number(odds) / 1e18;
+  return oddsNumber.toFixed(2);
+}
+
+// Helper function to calculate probability from odds (probability = 1/odds * 100)
+function calculateProbabilityFromOdds(odds: bigint): number {
+  const oddsNumber = Number(odds) / 1e18;
+  if (oddsNumber <= 0) return 0;
+  return Math.max(0, Math.min(100, (1 / oddsNumber) * 100));
+}
+
+// Fallback: Helper function to calculate percentage from current price (for backwards compatibility)
+function calculateProbabilityFromPrice(price: bigint): number {
+  const priceAsNumber = Number(price) / 1e18;
+  return Math.max(0, Math.min(100, priceAsNumber * 100));
 }
 
 // Color palette for options (up to 10 options)
@@ -41,26 +54,50 @@ const optionColors = [
 ];
 
 export function MultiOptionProgress({
+  marketId,
   options,
   totalVolume,
   className,
 }: MultiOptionProgressProps) {
-  // Calculate total shares across all options for percentage calculation
-  const totalShares = options.reduce(
-    (sum, option) => sum + option.totalShares,
-    0n
-  );
+  // Get market odds directly from contract
+  const { data: marketOdds } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "getMarketOdds",
+    args: [BigInt(marketId)],
+  });
+
+  // Convert contract odds to array of bigints
+  const odds = (marketOdds as readonly bigint[]) || [];
+
+  // Debug logging
+  console.log(`📊 Market ${marketId} odds from contract:`, {
+    marketOdds,
+    odds: odds.map((odd) => `${Number(odd) / 1e18}x`),
+    optionCount: options.length,
+  });
+
+  // Calculate probabilities from contract odds, fallback to price-based calculation
+  const probabilities =
+    odds.length > 0
+      ? odds.map((odd) => calculateProbabilityFromOdds(odd))
+      : options.map((option) =>
+          calculateProbabilityFromPrice(option.currentPrice)
+        );
+
+  // Normalize probabilities if they don't sum to 100%
+  const totalProbability = probabilities.reduce((sum, prob) => sum + prob, 0);
+  const normalizationFactor = totalProbability > 0 ? 100 / totalProbability : 0;
 
   return (
     <div className={cn("space-y-4", className)}>
-      {/* Progress Bar */}
+      {/* Progress Bar - based on contract odds */}
       <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
         <div className="h-full flex">
           {options.map((option, index) => {
-            const percentage = calculatePercentage(
-              option.totalShares,
-              totalShares
-            );
+            const probability = probabilities[index] || 0;
+            const normalizedProbability = probability * normalizationFactor;
+
             return (
               <div
                 key={index}
@@ -68,8 +105,8 @@ export function MultiOptionProgress({
                   optionColors[index] || "bg-gray-400",
                   "h-full transition-all duration-300 ease-in-out"
                 )}
-                style={{ width: `${percentage}%` }}
-                title={`${option.name}: ${percentage.toFixed(1)}%`}
+                style={{ width: `${normalizedProbability}%` }}
+                title={`${option.name}: ${normalizedProbability.toFixed(1)}%`}
               />
             );
           })}
@@ -79,12 +116,12 @@ export function MultiOptionProgress({
       {/* Options List */}
       <div className="space-y-2">
         {options.map((option, index) => {
-          const percentage = calculatePercentage(
-            option.totalShares,
-            totalShares
-          );
+          const probability = probabilities[index] || 0;
+          const normalizedProbability = probability * normalizationFactor;
+          const optionOdds = odds[index] || 0n;
           const priceFormatted = formatPrice(option.currentPrice);
           const volumeFormatted = formatPrice(option.totalVolume);
+          const oddsFormatted = formatOdds(optionOdds);
 
           return (
             <div
@@ -113,14 +150,17 @@ export function MultiOptionProgress({
               <div className="text-right">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-bold text-gray-900">
-                    {percentage.toFixed(1)}%
+                    {normalizedProbability.toFixed(1)}%
                   </span>
                   <span className="text-xs text-gray-500">
-                    {priceFormatted} Buster
+                    {odds.length > 0
+                      ? formatOdds(optionOdds)
+                      : (1 / (probability / 100)).toFixed(2)}
+                    x
                   </span>
                 </div>
                 <div className="text-xs text-gray-400">
-                  Vol: {volumeFormatted} Buster
+                  {priceFormatted} Buster • Vol: {volumeFormatted}
                 </div>
               </div>
             </div>

@@ -32,7 +32,7 @@ export function Footer() {
       icon: Trophy,
       label: "Leaderboard",
     },
-    { hrefBase: "/", tabValue: "myvotes", icon: User, label: "Profile" },
+    { hrefBase: "/profile", tabValue: "", icon: User, label: "Profile" },
   ];
 
   // Add admin item only for authorized users
@@ -122,6 +122,7 @@ export function Footer() {
                   : item.hrefBase;
               // An item is active if its tabValue matches the currentQueryTab.
               // If currentQueryTab is null (no tab in URL), 'active' is the default active tab.
+              // For Profile, check if we're on the /profile page
               const isActive =
                 (currentQueryTab === null && item.tabValue === "active") ||
                 currentQueryTab === item.tabValue ||

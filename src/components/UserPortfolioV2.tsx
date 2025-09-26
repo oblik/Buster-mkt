@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useAccount, useReadContract } from "wagmi";
 import { type Address } from "viem";
 import { useToast } from "@/components/ui/use-toast";
@@ -10,6 +11,8 @@ import {
   V2contractAbi,
   tokenAddress as defaultTokenAddress,
   tokenAbi as defaultTokenAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,13 +27,13 @@ import {
   BarChart3,
   RefreshCw,
 } from "lucide-react";
-import Link from "next/link";
+import { useUserPortfolio } from "@/hooks/useSubgraphData";
 
 interface UserPortfolio {
-  totalInvested: bigint;
-  totalWinnings: bigint;
-  unrealizedPnL: bigint;
-  realizedPnL: bigint;
+  totalInvested: string;
+  totalWinnings: string;
+  unrealizedPnL: string;
+  realizedPnL: string;
   tradeCount: number;
 }
 
@@ -72,8 +75,8 @@ export function UserPortfolioV2() {
   const [tokenSymbol, setTokenSymbol] = useState<string>("buster");
   const [tokenDecimals, setTokenDecimals] = useState<number>(18);
 
-  // Get betting token info
-  const { data: bettingTokenAddr } = useReadContract({
+  // Get betting token info (casted to any to avoid deep ABI typing issues)
+  const { data: bettingTokenAddr } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getBettingToken",
@@ -82,28 +85,26 @@ export function UserPortfolioV2() {
   const tokenAddress = (bettingTokenAddr as Address) || defaultTokenAddress;
 
   // Get token metadata
-  const { data: symbolData } = useReadContract({
+  const { data: symbolData } = (useReadContract as any)({
     address: tokenAddress,
     abi: defaultTokenAbi,
     functionName: "symbol",
     query: { enabled: !!tokenAddress },
   });
 
-  const { data: decimalsData } = useReadContract({
+  const { data: decimalsData } = (useReadContract as any)({
     address: tokenAddress,
     abi: defaultTokenAbi,
     functionName: "decimals",
     query: { enabled: !!tokenAddress },
   });
 
-  // Get user portfolio
-  const { data: portfolioData, refetch: refetchPortfolio } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getUserPortfolio",
-    args: [accountAddress!],
-    query: { enabled: !!accountAddress },
-  });
+  // Get user portfolio from subgraph
+  const {
+    portfolio: portfolioData,
+    isLoading: isLoadingPortfolio,
+    refetch: refetchPortfolio,
+  } = useUserPortfolio(accountAddress!);
 
   useEffect(() => {
     if (symbolData) setTokenSymbol(symbolData as string);
@@ -155,35 +156,35 @@ export function UserPortfolioV2() {
       setPortfolio(portfolioInfo);
 
       // Get market count to know how many markets to check
-      const marketCount = (await publicClient.readContract({
+      const marketCount = (await (publicClient.readContract as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
-        functionName: "getMarketCount",
-      })) as bigint;
+        functionName: "getMarketCount" as any,
+      })) as unknown as bigint;
 
       // Fetch user positions across all markets
       const positions: MarketPosition[] = [];
       for (let marketId = 0; marketId < Number(marketCount); marketId++) {
         try {
           // Get user shares in this market
-          const userShares = (await publicClient.readContract({
+          const userShares = (await (publicClient.readContract as any)({
             address: V2contractAddress,
             abi: V2contractAbi,
-            functionName: "getUserShares",
+            functionName: "getUserShares" as any,
             args: [BigInt(marketId), accountAddress],
-          })) as bigint[];
+          })) as unknown as bigint[];
 
           // Skip if user has no shares in this market
           if (!userShares || userShares.every((share) => share === 0n))
             continue;
 
           // Get market info
-          const marketInfo = (await publicClient.readContract({
+          const marketInfo = (await (publicClient.readContract as any)({
             address: V2contractAddress,
             abi: V2contractAbi,
-            functionName: "getMarketInfo",
+            functionName: "getMarketInfo" as any,
             args: [BigInt(marketId)],
-          })) as [
+          })) as unknown as [
             string,
             string,
             bigint,
@@ -191,9 +192,11 @@ export function UserPortfolioV2() {
             bigint,
             boolean,
             boolean,
+            number,
             boolean,
             bigint,
-            string
+            string,
+            boolean
           ];
 
           const [
@@ -204,8 +207,10 @@ export function UserPortfolioV2() {
             optionCount,
             resolved,
             ,
+            ,
             invalidated,
             winningOptionId,
+            creator,
           ] = marketInfo;
 
           // Get option names and current prices
@@ -214,12 +219,12 @@ export function UserPortfolioV2() {
 
           for (let optionId = 0; optionId < Number(optionCount); optionId++) {
             // Get option info
-            const optionInfo = (await publicClient.readContract({
+            const optionInfo = (await (publicClient.readContract as any)({
               address: V2contractAddress,
               abi: V2contractAbi,
-              functionName: "getMarketOption",
+              functionName: "getMarketOption" as any,
               args: [BigInt(marketId), BigInt(optionId)],
-            })) as [string, string, bigint, bigint, bigint, boolean];
+            })) as unknown as [string, string, bigint, bigint, bigint, boolean];
 
             options.push(optionInfo[0]);
             currentPrices.push(optionInfo[4]); // currentPrice
@@ -254,50 +259,72 @@ export function UserPortfolioV2() {
       // Get recent trades
       const trades: Trade[] = [];
       const tradeCount = Number(portfolioInfo.tradeCount);
-      const recentTradeCount = Math.min(tradeCount, 10); // Last 10 trades
 
-      for (
-        let i = Math.max(0, tradeCount - recentTradeCount);
-        i < tradeCount;
-        i++
-      ) {
-        try {
-          const trade = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "userTradeHistory",
-            args: [accountAddress, BigInt(i)],
-          })) as [bigint, bigint, string, string, bigint, bigint, bigint];
+      if (tradeCount > 0) {
+        const recentTradeCount = Math.min(tradeCount, 10); // Last 10 trades
 
-          const [
-            marketId,
-            optionId,
-            buyer,
-            seller,
-            price,
-            quantity,
-            timestamp,
-          ] = trade;
-          const isBuy = buyer.toLowerCase() === accountAddress.toLowerCase();
+        for (
+          let i = Math.max(0, tradeCount - recentTradeCount);
+          i < tradeCount;
+          i++
+        ) {
+          try {
+            const trade = (await publicClient.readContract({
+              address: V2contractAddress,
+              abi: V2contractAbi,
+              functionName: "userTradeHistory",
+              args: [accountAddress, BigInt(i)],
+            })) as unknown as [
+              bigint,
+              bigint,
+              string,
+              string,
+              bigint,
+              bigint,
+              bigint
+            ];
 
-          // Find market and option names
-          const position = positions.find(
-            (p) => p.marketId === Number(marketId)
-          );
+            const [
+              marketId,
+              optionId,
+              buyer,
+              seller,
+              price,
+              quantity,
+              timestamp,
+            ] = trade;
+            const isBuy =
+              buyer && accountAddress
+                ? buyer.toLowerCase() === accountAddress.toLowerCase()
+                : false;
 
-          trades.push({
-            marketId: Number(marketId),
-            optionId: Number(optionId),
-            isBuy,
-            quantity,
-            price,
-            timestamp,
-            marketName: position?.marketName || `Market ${marketId}`,
-            optionName:
-              position?.options[Number(optionId)] || `Option ${optionId}`,
-          });
-        } catch (error) {
-          console.error(`Error fetching trade ${i}:`, error);
+            // Find market and option names
+            const position = positions.find(
+              (p) => p.marketId === Number(marketId)
+            );
+
+            trades.push({
+              marketId: Number(marketId),
+              optionId: Number(optionId),
+              isBuy,
+              quantity,
+              price,
+              timestamp,
+              marketName: position?.marketName || `Market ${marketId}`,
+              optionName:
+                position?.options[Number(optionId)] || `Option ${optionId}`,
+            });
+          } catch (error) {
+            console.error(`Error fetching trade ${i}:`, error);
+            // If we get a contract revert, it likely means we've reached the end of available trades
+            // Break the loop to avoid further unnecessary calls
+            if (
+              (error as any)?.message?.includes("reverted") ||
+              (error as any)?.message?.includes("ContractFunctionRevertedError")
+            ) {
+              break;
+            }
+          }
         }
       }
 
@@ -349,6 +376,26 @@ export function UserPortfolioV2() {
 
   const formatPnL = (pnl: bigint) => {
     const value = Number(pnl) / 10 ** tokenDecimals;
+    const isPositive = value >= 0;
+    return {
+      value: Math.abs(value).toLocaleString(undefined, {
+        maximumFractionDigits: 2,
+      }),
+      isPositive,
+    };
+  };
+
+  // Flexible formatters that accept string (from subgraph) or bigint
+  const formatAmountFlexible = (amount: string | bigint) => {
+    const bi = typeof amount === "string" ? BigInt(amount) : amount;
+    return (Number(bi) / 10 ** tokenDecimals).toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const formatPnLFlexible = (pnl: string | bigint) => {
+    const bi = typeof pnl === "string" ? BigInt(pnl) : pnl;
+    const value = Number(bi) / 10 ** tokenDecimals;
     const isPositive = value >= 0;
     return {
       value: Math.abs(value).toLocaleString(undefined, {
@@ -438,8 +485,9 @@ export function UserPortfolioV2() {
     );
   }
 
-  const totalPnL = portfolio.realizedPnL + portfolio.unrealizedPnL;
-  const totalPnLFormatted = formatPnL(totalPnL);
+  const totalPnL =
+    BigInt(portfolio.realizedPnL) + BigInt(portfolio.unrealizedPnL);
+  const totalPnLFormatted = formatPnLFlexible(totalPnL);
 
   return (
     <div className="space-y-6">
@@ -471,7 +519,7 @@ export function UserPortfolioV2() {
                 Total Invested
               </p>
               <p className="text-2xl font-bold">
-                {formatAmount(portfolio.totalInvested)} {tokenSymbol}
+                {formatAmountFlexible(portfolio.totalInvested)} {tokenSymbol}
               </p>
             </div>
 
@@ -481,7 +529,7 @@ export function UserPortfolioV2() {
                 Total Winnings
               </p>
               <p className="text-2xl font-bold text-green-600">
-                {formatAmount(portfolio.totalWinnings)} {tokenSymbol}
+                {formatAmountFlexible(portfolio.totalWinnings)} {tokenSymbol}
               </p>
             </div>
 
@@ -529,7 +577,7 @@ export function UserPortfolioV2() {
                   }`}
                 >
                   {Number(portfolio.realizedPnL) >= 0 ? "+" : ""}
-                  {formatAmount(portfolio.realizedPnL)} {tokenSymbol}
+                  {formatAmountFlexible(portfolio.realizedPnL)} {tokenSymbol}
                 </p>
                 <Badge variant="secondary">Locked</Badge>
               </div>
@@ -546,7 +594,7 @@ export function UserPortfolioV2() {
                   }`}
                 >
                   {Number(portfolio.unrealizedPnL) >= 0 ? "+" : ""}
-                  {formatAmount(portfolio.unrealizedPnL)} {tokenSymbol}
+                  {formatAmountFlexible(portfolio.unrealizedPnL)} {tokenSymbol}
                 </p>
                 <Badge variant="outline">Current</Badge>
               </div>

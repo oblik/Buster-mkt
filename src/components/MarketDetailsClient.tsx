@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Toaster } from "@/components/ui/toaster";
-import { Clock, Award, Users } from "lucide-react"; //AlertTriangle later for status badge
+import { Clock, Award, Users } from "lucide-react";
 import { MarketBuyInterface } from "@/components/market-buy-interface";
 import { MarketV2BuyInterface } from "@/components/market-v2-buy-interface";
 import { MarketV2PositionManager } from "@/components/MarketV2PositionManager";
@@ -47,6 +47,8 @@ interface Market {
   outcome: number;
   resolved: boolean;
   version?: "v1" | "v2";
+  // Event-based market support
+  earlyResolutionAllowed?: boolean;
 }
 
 interface MarketDetailsClientProps {
@@ -225,63 +227,93 @@ export function MarketDetailsClient({
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
       <Navbar />
-      <main className="flex-grow container mx-auto px-4 pt-4 pb-24 md:p-6">
-        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400 mb-4">
-          <Button asChild variant="outline" size="sm" className="mr-2">
+      <main className="flex-grow container mx-auto px-3 pt-3 pb-20 md:px-4 md:pt-4 md:pb-24">
+        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400 mb-3 md:mb-4">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="mr-2 text-xs md:text-sm"
+          >
             <Link href="/">Home</Link>
           </Button>
           <Link
             href="/"
-            className="hover:text-blue-600 dark:hover:text-blue-400"
+            className="hover:text-blue-600 dark:hover:text-blue-400 text-xs md:text-sm"
           >
             Markets
           </Link>
           <span className="mx-2">/</span>
-          <span className="text-sm text-gray-600 dark:text-gray-400">
+          <span className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
             Market #{marketId}
           </span>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
-            <h1 className="text-lg md:text-xl font-bold text-gray-900 dark:text-gray-100 mb-2 md:mb-0">
-              {/* {market.question} */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 md:p-6 mb-4 md:mb-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-3 md:mb-4">
+            <h1 className="text-base md:text-xl font-bold text-gray-900 dark:text-gray-100 mb-2 md:mb-0">
               <LinkifiedText text={market.question} />
             </h1>
-            {/* {statusBadge} */}
           </div>
 
           {/* Market Context - show if there are URLs in the question */}
-          <MarketContext question={market.question} className="mb-4" />
+          <MarketContext question={market.question} className="mb-3 md:mb-4" />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4 mt-3 md:mt-4">
             <div className="flex items-center">
-              <Clock className="text-gray-500 dark:text-gray-400 w-5 h-5 mr-2" />
+              <Clock className="text-gray-500 dark:text-gray-400 w-4 h-4 md:w-5 md:h-5 mr-2" />
               <div>
-                <MarketTime endTime={market.endTime} />
+                <MarketTime
+                  endTime={market.endTime}
+                  earlyResolutionAllowed={market.earlyResolutionAllowed}
+                />
               </div>
             </div>
 
             <div className="flex items-center">
-              <Users className="text-gray-500 dark:text-gray-400 w-5 h-5 mr-2" />
+              <Users className="text-gray-500 dark:text-gray-400 w-4 h-4 md:w-5 md:h-5 mr-2" />
               <div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">
+                <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
                   Reward pool
                 </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">
+                <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
                   {totalSharesDisplay.toLocaleString()} Buster
                 </div>
               </div>
             </div>
 
+            {market.earlyResolutionAllowed && (
+              <div className="flex items-center">
+                <svg
+                  className="text-orange-500 w-4 h-4 md:w-5 md:h-5 mr-2"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <div>
+                  <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
+                    Market Type
+                  </div>
+                  <div className="text-xs md:text-sm text-orange-600 dark:text-orange-400 font-medium">
+                    Event-Based
+                  </div>
+                </div>
+              </div>
+            )}
+
             {market.resolved && (
               <div className="flex items-center">
-                <Award className="text-green-600 dark:text-green-400 w-5 h-5 mr-2" />
+                <Award className="text-green-600 dark:text-green-400 w-4 h-4 md:w-5 md:h-5 mr-2" />
                 <div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                  <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
                     Winning Option
                   </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                  <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
                     {market.version === "v2" && market.options
                       ? market.options[market.outcome] ||
                         `Option ${market.outcome + 1}`
@@ -295,13 +327,20 @@ export function MarketDetailsClient({
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-          <div className="mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 md:p-6">
+          <div className="mb-4 md:mb-6">
             {isEnded ? (
               market.resolved ? (
+                // Normalize outcome prop: V2 uses 0-based winningOptionId; other areas add +1
                 <MarketResolved
                   marketId={Number(marketId)}
-                  outcome={market.outcome}
+                  outcome={
+                    market.version === "v2"
+                      ? typeof market.winningOptionId !== "undefined"
+                        ? Number(market.winningOptionId) + 1
+                        : Number(market.outcome)
+                      : Number(market.outcome)
+                  }
                   optionA={market.optionA}
                   optionB={market.optionB}
                   options={market.options}
@@ -318,25 +357,38 @@ export function MarketDetailsClient({
                     question: market.question,
                     description: market.description || market.question,
                     endTime: market.endTime,
-                    optionCount: market.options?.length || 2,
-                    disputed: market.disputed || false,
-                    validated: true,
-                    resolved: market.resolved,
                     category: convertToMarketCategory(market.category),
-                    winningOptionId: market.resolved ? market.outcome : 0,
-                    creator:
-                      market.creator ||
-                      "0x0000000000000000000000000000000000000000",
-                    totalLiquidity: totalSharesInUnits,
-                    totalVolume: totalSharesInUnits,
+                    marketType: 0, // PAID market type
+                    optionCount: BigInt(market.options?.length || 2),
                     options: (market.options || []).map((option, index) => ({
-                      name: option,
-                      description: option,
+                      name: option || `Option ${index + 1}`,
+                      description: option || `Option ${index + 1}`,
                       totalShares: market.optionShares?.[index] || 0n,
                       totalVolume: 0n,
                       currentPrice: 0n, // Will be fetched by the component
                       isActive: !market.resolved,
                     })) satisfies MarketOption[],
+                    resolved: market.resolved,
+                    disputed: market.disputed || false,
+                    validated: true,
+                    invalidated: false,
+                    winningOptionId: BigInt(
+                      market.resolved ? market.outcome ?? 0 : 0
+                    ),
+                    creator:
+                      market.creator ||
+                      "0x0000000000000000000000000000000000000000",
+                    createdAt: 0n,
+                    adminInitialLiquidity: 0n,
+                    userLiquidity: totalSharesInUnits,
+                    totalVolume: 0n,
+                    platformFeesCollected: 0n,
+                    ammFeesCollected: 0n,
+                    adminLiquidityClaimed: false,
+                    ammLiquidityPool: 0n,
+                    payoutIndex: 0n,
+                    earlyResolutionAllowed:
+                      market.earlyResolutionAllowed || false,
                   } satisfies MarketV2
                 }
               />
@@ -356,7 +408,7 @@ export function MarketDetailsClient({
 
           {/* V2 Position Manager - only show for V2 markets */}
           {market.version === "v2" && (
-            <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+            <div className="mt-6 md:mt-8 border-t border-gray-200 dark:border-gray-700 pt-4 md:pt-6">
               <MarketV2PositionManager
                 marketId={Number(marketId)}
                 market={
@@ -364,25 +416,38 @@ export function MarketDetailsClient({
                     question: market.question,
                     description: market.description || market.question,
                     endTime: market.endTime,
-                    optionCount: market.options?.length || 2,
-                    disputed: market.disputed || false,
-                    validated: true,
-                    resolved: market.resolved,
                     category: convertToMarketCategory(market.category),
-                    winningOptionId: market.resolved ? market.outcome : 0,
-                    creator:
-                      market.creator ||
-                      "0x0000000000000000000000000000000000000000",
-                    totalLiquidity: totalSharesInUnits,
-                    totalVolume: totalSharesInUnits,
+                    marketType: 0, // PAID market type
+                    optionCount: BigInt(market.options?.length || 2),
                     options: (market.options || []).map((option, index) => ({
-                      name: option,
-                      description: option,
+                      name: option || `Option ${index + 1}`,
+                      description: option || `Option ${index + 1}`,
                       totalShares: market.optionShares?.[index] || 0n,
                       totalVolume: 0n,
                       currentPrice: 0n, // Will be fetched by the component
                       isActive: !market.resolved,
                     })) satisfies MarketOption[],
+                    resolved: market.resolved,
+                    disputed: market.disputed || false,
+                    validated: true,
+                    invalidated: false,
+                    winningOptionId: BigInt(
+                      market.resolved ? market.outcome ?? 0 : 0
+                    ),
+                    creator:
+                      market.creator ||
+                      "0x0000000000000000000000000000000000000000",
+                    createdAt: 0n,
+                    adminInitialLiquidity: 0n,
+                    userLiquidity: totalSharesInUnits,
+                    totalVolume: 0n,
+                    platformFeesCollected: 0n,
+                    ammFeesCollected: 0n,
+                    adminLiquidityClaimed: false,
+                    ammLiquidityPool: 0n,
+                    payoutIndex: 0n,
+                    earlyResolutionAllowed:
+                      market.earlyResolutionAllowed || false,
                   } satisfies MarketV2
                 }
               />
@@ -391,7 +456,7 @@ export function MarketDetailsClient({
 
           {/* V3 Financial Manager - only show for resolved V2 markets */}
           {market.version === "v2" && market.resolved && (
-            <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+            <div className="mt-6 md:mt-8 border-t border-gray-200 dark:border-gray-700 pt-4 md:pt-6">
               <V3FinancialManager
                 marketId={Number(marketId)}
                 isCreator={userRoles.isCreator}
@@ -401,8 +466,8 @@ export function MarketDetailsClient({
             </div>
           )}
 
-          <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
+          <div className="mt-6 md:mt-8 border-t border-gray-200 dark:border-gray-700 pt-4 md:pt-6">
+            <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 text-gray-900 dark:text-gray-100">
               Current Market Sentiment
             </h3>
             {market.version === "v2" &&
@@ -426,8 +491,8 @@ export function MarketDetailsClient({
             )}
           </div>
 
-          {/* Market Analytics Charts */}
-          <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+          {/* Market Analytics Charts - Hidden on mobile */}
+          <div className="hidden md:block mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
             <MarketChart
               marketId={marketId}
               market={{
@@ -440,8 +505,11 @@ export function MarketDetailsClient({
           </div>
 
           {/* Comment System */}
-          <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
-            <CommentSystem marketId={marketId} />
+          <div className="mt-6 md:mt-8 border-t border-gray-200 dark:border-gray-700 pt-4 md:pt-6">
+            <CommentSystem
+              marketId={marketId}
+              version={market.version || "v1"}
+            />
           </div>
         </div>
       </main>

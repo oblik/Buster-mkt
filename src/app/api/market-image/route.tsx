@@ -5,13 +5,15 @@ import {
   publicClient,
   V2contractAddress,
   V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import satori from "satori";
 import sharp from "sharp";
 import { promises as fs } from "fs";
 import path from "node:path";
 import { format } from "date-fns";
-
+//
 interface MarketImageDataV1 {
   question: string;
   optionA: string;
@@ -32,6 +34,8 @@ interface MarketImageDataV2 {
   optionCount: number;
   resolved: boolean;
   disputed: boolean;
+  marketType: number;
+  invalidated: boolean;
   winningOptionId: number;
   creator: string;
   version: "v2";
@@ -60,9 +64,11 @@ type MarketInfoV2ContractReturn = readonly [
   bigint, // optionCount
   boolean, // resolved
   boolean, // disputed
+  number, // marketType
   boolean, // invalidated
   bigint, // winningOptionId
-  string // creator
+  string,
+  boolean
 ];
 
 async function fetchMarketData(marketId: string): Promise<MarketImageData> {
@@ -76,33 +82,64 @@ async function fetchMarketData(marketId: string): Promise<MarketImageData> {
 
     // Try V2 first (newer contract)
     try {
-      const v2MarketData = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
+      // Read raw result and coerce to unknown first to avoid strict tuple/readonly conversion errors
+      const raw = (await publicClient.readContract({
+        address: PolicastViews,
+        abi: PolicastViewsAbi,
         functionName: "getMarketInfo",
         args: [marketIdBigInt],
-      })) as MarketInfoV2ContractReturn;
+      })) as unknown;
 
-      // If successful and market exists, return V2 data
-      if (v2MarketData[0]) {
-        // question exists
-        console.log(
-          `Market Image API: Found V2 market ${marketId}:`,
-          v2MarketData
-        );
-        return {
-          question: v2MarketData[0],
-          description: v2MarketData[1],
-          endTime: v2MarketData[2],
-          category: v2MarketData[3],
-          optionCount: Number(v2MarketData[4]),
-          resolved: v2MarketData[5],
-          disputed: v2MarketData[6],
-          winningOptionId: Number(v2MarketData[8]), // Updated index: was [7], now [8] due to invalidated field
-          creator: v2MarketData[9], // Updated index: was [8], now [9] due to invalidated field
-          version: "v2",
-        };
+      // Normalize to an any[] for safe indexing; support both 12- and 13-element ABI shapes
+      const v2Arr = (raw as readonly any[]) || [];
+
+      if (v2Arr.length === 0) {
+        throw new Error("Empty response from V2 getMarketInfo");
       }
+
+      // Some deployments return a 12-element tuple, others 13. Map both to a stable shape.
+      // Known V2 shape (13): [question, description, endTime, category, optionCount, resolved, disputed, marketType, invalidated, winningOptionId, totalVolume, creator, earlyResolutionAllowed]
+      // Older/alternate V2 shape (12): [question, description, endTime, category, optionCount, resolved, disputed, marketType, invalidated, winningOptionId, creator, earlyResolutionAllowed]
+
+      // Helper accessors with safe fallbacks
+      const question = String(v2Arr[0] ?? "");
+      const description = String(v2Arr[1] ?? "");
+      const endTime = BigInt(v2Arr[2] ?? 0n);
+      const category = Number(v2Arr[3] ?? 0);
+      const optionCount = Number(v2Arr[4] ?? 0);
+      const resolved = Boolean(v2Arr[5]);
+      // disputed may be at index 6 or 7 depending on tuple ordering; try to read consistently
+      const disputed = Boolean(v2Arr[6]);
+      const marketType = Number(v2Arr[7] ?? 0);
+      const invalidated = Boolean(v2Arr[8]);
+      const winningOptionId = Number(v2Arr[9] ?? 0);
+
+      // totalVolume may be present at index 10 in the 13-element shape; if missing, set 0n
+      const totalVolumeRaw = v2Arr.length > 12 ? v2Arr[10] : undefined;
+      const creatorRaw = v2Arr.length > 12 ? v2Arr[11] : v2Arr[10];
+      const earlyResolutionAllowedRaw =
+        v2Arr.length > 12 ? v2Arr[12] : v2Arr[11];
+
+      const totalVolume = totalVolumeRaw ? BigInt(totalVolumeRaw) : 0n;
+      const creator = creatorRaw ? String(creatorRaw) : "";
+      const earlyResolutionAllowed = Boolean(earlyResolutionAllowedRaw);
+
+      console.log(`Market Image API: Found V2 market ${marketId}:`, v2Arr);
+
+      return {
+        question,
+        description,
+        endTime,
+        category,
+        optionCount,
+        resolved,
+        disputed,
+        marketType,
+        invalidated,
+        winningOptionId,
+        creator,
+        version: "v2",
+      };
     } catch (error) {
       // V2 market doesn't exist, try V1
       console.log(`Market ${marketId} not found in V2, trying V1...`);
@@ -635,7 +672,7 @@ export async function GET(request: NextRequest) {
                           : market.optionB!,
                         30
                       )
-                    : `Option ${market.winningOptionId + 1}`}
+                    : `Option ${Number(market.winningOptionId) + 1}`}
                 </div>
               </div>
             )}

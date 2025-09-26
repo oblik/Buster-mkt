@@ -15,6 +15,8 @@ import {
   V2contractAddress,
   V2contractAbi,
   publicClient,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { MultiOptionProgress } from "./multi-option-progress";
 import MarketTime from "./market-time";
@@ -28,10 +30,11 @@ import {
   faShareFromSquare,
   faUpRightAndDownLeftFromCenter,
 } from "@fortawesome/free-solid-svg-icons";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Gift } from "lucide-react";
 import { MarketV2, MarketOption, MarketCategory } from "@/types/types";
+import { FreeMarketClaimStatus } from "./FreeMarketClaimStatus";
 
-// Add LinkifiedText component for URL preview support
+// Add LinkifiedText component for URL preview support//
 const LinkifiedText = ({ text }: { text: string }) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
@@ -119,6 +122,32 @@ const InvalidatedBadge = () => {
   );
 };
 
+// Free market badge component
+const FreeMarketBadge = () => {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 border border-green-200 shadow-sm">
+      <Gift className="h-3 w-3" />
+      Free Entry
+    </span>
+  );
+};
+
+// Event-based market badge component
+const EventBasedBadge = () => {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 border border-orange-200 shadow-sm">
+      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+        <path
+          fillRule="evenodd"
+          d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+          clipRule="evenodd"
+        />
+      </svg>
+      Event-Based
+    </span>
+  );
+};
+
 interface MarketV2CardProps {
   index: number;
   market: MarketV2;
@@ -132,14 +161,14 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
   // Fetch all options for this market
   const { data: marketInfo } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
     functionName: "getMarketInfo",
     args: [BigInt(index)],
   });
 
   // Fetch user shares for this market
-  const { data: userShares } = useReadContract({
+  const { data: userShares } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getUserShares",
@@ -161,14 +190,12 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           // Get both static option data and real-time calculated price
           const [optionResponse, priceData] = await Promise.all([
             fetch(`/api/market-option?marketId=${index}&optionId=${i}`),
-            publicClient
-              .readContract({
-                address: V2contractAddress,
-                abi: V2contractAbi,
-                functionName: "calculateCurrentPrice",
-                args: [BigInt(index), BigInt(i)],
-              })
-              .catch(() => null), // Fallback if calculateCurrentPrice fails
+            (publicClient.readContract as any)({
+              address: V2contractAddress,
+              abi: V2contractAbi,
+              functionName: "calculateCurrentPrice",
+              args: [BigInt(index), BigInt(i)],
+            }).catch(() => null), // Fallback if calculateCurrentPrice fails
           ]);
 
           if (optionResponse.ok) {
@@ -209,7 +236,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   useEffect(() => {
     const fetchCommentCount = async () => {
       try {
-        const response = await fetch(`/api/comments?marketId=${index}`);
+        const response = await fetch(
+          `/api/comments?marketId=${index}&version=v2`
+        );
         if (response.ok) {
           const data = await response.json();
           setCommentCount(data.total || 0);
@@ -233,10 +262,20 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
       <Card key={index} className="flex flex-col border-red-200 bg-red-50">
         <CardHeader>
           <div className="flex items-center justify-between mb-2">
-            <MarketTime endTime={market.endTime} />
+            <MarketTime
+              endTime={market.endTime}
+              earlyResolutionAllowed={market.earlyResolutionAllowed}
+            />
             <div className="flex items-center gap-2">
               <CategoryBadge category={market.category} />
               <InvalidatedBadge />
+              {/* Show free market badge if marketType is 1 */}
+              {marketInfo &&
+                marketInfo.length > 7 &&
+                typeof marketInfo[7] === "number" &&
+                marketInfo[7] === 1 && <FreeMarketBadge />}
+              {/* Show event-based badge if early resolution is allowed */}
+              {market.earlyResolutionAllowed && <EventBasedBadge />}
             </div>
           </div>
           <CardTitle className="text-base leading-relaxed">
@@ -247,6 +286,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               <LinkifiedText text={market.description} />
             </p>
           )}
+
+          {/* Free Market Claim Status */}
+          <FreeMarketClaimStatus marketId={index} className="mt-3" />
         </CardHeader>
         <CardContent className="pb-4">
           <div className="text-center py-4">
@@ -296,17 +338,28 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   };
 
   // Check if user has shares
+  const typedUserShares = (userShares as unknown as readonly bigint[]) || [];
   const hasShares =
-    userShares && userShares.some((shares: bigint) => shares > 0n);
+    typedUserShares && typedUserShares.some((shares) => shares > 0n);
 
   return (
     <Card key={index} className="flex flex-col">
       <CardHeader>
         <div className="flex items-center justify-between mb-2">
-          <MarketTime endTime={market.endTime} />
+          <MarketTime
+            endTime={market.endTime}
+            earlyResolutionAllowed={market.earlyResolutionAllowed}
+          />
           <div className="flex items-center gap-2">
             <CategoryBadge category={market.category} />
-            {market.invalidated && <InvalidatedBadge />}
+            {isInvalidated && <InvalidatedBadge />}
+            {/* Show free market badge if marketType is 1 */}
+            {marketInfo &&
+              marketInfo.length > 7 &&
+              typeof marketInfo[7] === "number" &&
+              marketInfo[7] === 1 && <FreeMarketBadge />}
+            {/* Show event-based badge if early resolution is allowed */}
+            {market.earlyResolutionAllowed && <EventBasedBadge />}
           </div>
         </div>
         <CardTitle className="text-base leading-relaxed">
@@ -317,11 +370,15 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
             <LinkifiedText text={market.description} />
           </p>
         )}
+
+        {/* Free Market Claim Status */}
+        <FreeMarketClaimStatus marketId={index} className="mt-3" />
       </CardHeader>
 
       <CardContent className="pb-0">
         {options.length > 0 && (
           <MultiOptionProgress
+            marketId={index}
             options={options}
             totalVolume={totalVolume}
             className="mb-4"
@@ -332,7 +389,11 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           isResolved ? (
             <MarketResolved
               marketId={index}
-              outcome={market.winningOptionId + 1} // Adjust for legacy component
+              outcome={
+                typeof market.winningOptionId !== "undefined"
+                  ? Number(market.winningOptionId) + 1
+                  : 0
+              }
               optionA={options[0]?.name || "Option 1"}
               optionB={options[1]?.name || "Option 2"}
             />

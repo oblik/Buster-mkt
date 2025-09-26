@@ -4,30 +4,23 @@ import { UserStats } from "@/components/UserStats";
 import { VoteHistory } from "@/components/VoteHistory";
 import { useAccount } from "wagmi";
 import { useFarcasterUser } from "@/hooks/useFarcasterUser";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  User,
-  Wallet,
   BarChart3,
   TrendingUp,
   PieChart,
   Activity,
+  Wallet,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
+import { Footer } from "@/components/footer";
 
 export default function ProfilePage() {
   const { address, isConnected } = useAccount();
   const farcasterUser = useFarcasterUser();
-
-  const displayName =
-    farcasterUser?.username ||
-    (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Anonymous");
-
-  const profileImage = farcasterUser?.pfpUrl;
 
   return (
     <div className="min-h-screen flex flex-col pb-20 md:pb-0 bg-gradient-to-br from-[#6A5ACD] via-[#E6E6FA] to-[#F0F8FF] dark:from-[#2D1B69] dark:via-[#1a1a2e] dark:to-[#16213e]">
@@ -35,55 +28,6 @@ export default function ProfilePage() {
       <div className="container mx-auto p-4 md:p-6 max-w-6xl">
         {isConnected ? (
           <>
-            {/* Profile Header */}
-            <Card className="mb-8 overflow-hidden border-0 shadow-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white">
-              <CardContent className="p-6 md:p-8">
-                <div className="flex flex-col md:flex-row items-center gap-6">
-                  <Avatar className="w-24 h-24 md:w-32 md:h-32 border-4 border-white/20 shadow-xl">
-                    <AvatarImage
-                      src={profileImage}
-                      alt={displayName}
-                      className="object-cover"
-                    />
-                    <AvatarFallback className="bg-white/10 text-white text-2xl font-bold">
-                      {farcasterUser?.username ? (
-                        farcasterUser.username.charAt(0).toUpperCase()
-                      ) : (
-                        <User className="w-12 h-12" />
-                      )}
-                    </AvatarFallback>
-                  </Avatar>
-
-                  <div className="text-center md:text-left flex-1">
-                    <h1 className="text-3xl md:text-4xl font-bold mb-2">
-                      {displayName}
-                    </h1>
-
-                    {farcasterUser && (
-                      <div className="flex flex-wrap gap-2 justify-center md:justify-start mb-3">
-                        <Badge
-                          variant="secondary"
-                          className="bg-white/20 text-white border-white/30"
-                        >
-                          <User className="w-3 h-3 mr-1" />
-                          FID: {farcasterUser.fid}
-                        </Badge>
-                      </div>
-                    )}
-
-                    {address && (
-                      <div className="flex items-center gap-2 justify-center md:justify-start text-white/80">
-                        <Wallet className="w-4 h-4" />
-                        <span className="font-mono text-sm">
-                          {address.slice(0, 8)}...{address.slice(-6)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Stats Section */}
@@ -181,6 +125,7 @@ export default function ProfilePage() {
           </div>
         )}
       </div>
+      <Footer />
     </div>
   );
 }

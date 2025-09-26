@@ -12,7 +12,7 @@ interface MarketResolvedProps {
   optionA?: string; // Optional for V1 compatibility
   optionB?: string; // Optional for V1 compatibility
   options?: string[]; // For V2 multi-option markets
-  version?: "v1" | "v2"; // To determine which contract to use
+  version?: "v1" | "v2"; // To determine which contract to use//
 }
 
 export function MarketResolved({
@@ -52,8 +52,22 @@ export function MarketResolved({
   // Determine the winning option text
   const getWinningOptionText = () => {
     if (version === "v2" && options) {
-      // V2: outcome is the winning option ID
-      return options[outcome] || `Option ${outcome + 1}`;
+      // V2: outcome may be number, string, or bigint. Coerce safely.
+      let idx: number;
+      try {
+        if (typeof outcome === "bigint") idx = Number(outcome);
+        else idx = Number(outcome as any);
+      } catch (e) {
+        idx = NaN;
+      }
+
+      if (!Number.isFinite(idx) || Number.isNaN(idx)) {
+        // Safe fallback to avoid `Option NaN` in UI
+        return options[0] ?? "Unknown option";
+      }
+
+      const text = options[idx];
+      return text ?? `Option ${idx + 1}`;
     } else if (optionA && optionB) {
       // V1: outcome 1 = optionA, outcome 2 = optionB
       return outcome === 1 ? optionA : optionB;
@@ -78,6 +92,8 @@ export function MarketResolved({
       <div className="bg-green-200 p-2 rounded-md text-center text-xs">
         Resolved: {getWinningOptionText()}
       </div>
+
+      {/* Show distribution message for all markets */}
       <p className="text-xs text-gray-500 text-center">{distributionMessage}</p>
     </div>
   );

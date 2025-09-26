@@ -1,22 +1,27 @@
 import { useReadContract, useAccount } from "wagmi";
-import { V2contractAddress, V2contractAbi } from "@/constants/contract";
+import {
+  V2contractAddress,
+  V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
+} from "@/constants/contract";
 
 export function useV3PlatformData() {
   const { isConnected, address } = useAccount();
 
-  // Fetch platform statistics
+  // Effects: Fetch platform statistics from PolicastViews (view contract for off-chain reads)
   const {
     data: platformStats,
     refetch: refetchPlatformStats,
     isLoading: isLoadingStats,
   } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
+    address: PolicastViews, // Use views contract for read-only data
+    abi: PolicastViewsAbi,
     functionName: "getPlatformStats",
     query: { enabled: isConnected },
   });
 
-  // Fetch current platform fee rate
+  // Fetch current platform fee rate from main contract (state-related)
   const { data: currentFeeRate, refetch: refetchFeeRate } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
@@ -24,7 +29,7 @@ export function useV3PlatformData() {
     query: { enabled: isConnected },
   });
 
-  // Fetch contract owner
+  // Fetch contract owner from main contract (admin role)
   const { data: owner } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
@@ -32,7 +37,7 @@ export function useV3PlatformData() {
     query: { enabled: isConnected },
   });
 
-  // Parse platform stats
+  // Interactions: Parse platform stats safely
   const globalStats = platformStats
     ? {
         totalFeesCollected: platformStats[0] as bigint,

@@ -1,5 +1,5 @@
 "use client";
-
+//
 import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
 import { useToast } from "@/components/ui/use-toast";
@@ -9,6 +9,8 @@ import {
   V2contractAbi,
   tokenAddress as defaultTokenAddress,
   tokenAbi as defaultTokenAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -117,7 +119,7 @@ export function VolumeAnalyticsV2() {
   const { data: bettingTokenAddr } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getBettingToken",
+    functionName: "bettingToken",
   });
 
   const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
@@ -141,7 +143,7 @@ export function VolumeAnalyticsV2() {
   const { data: marketCount } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketCount",
+    functionName: "marketCount",
   });
 
   useEffect(() => {
@@ -218,22 +220,11 @@ export function VolumeAnalyticsV2() {
         // Limit for performance
         try {
           const marketInfo = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
+            address: PolicastViews,
+            abi: PolicastViewsAbi,
             functionName: "getMarketInfo",
             args: [BigInt(i)],
-          })) as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            boolean,
-            bigint,
-            string
-          ];
+          })) as unknown as readonly any[];
 
           const [question, , , , optionCount, resolved] = marketInfo;
 
@@ -338,22 +329,11 @@ export function VolumeAnalyticsV2() {
 
       // Get market info
       const marketInfo = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
+        address: PolicastViews,
+        abi: PolicastViewsAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
-      })) as [
-        string,
-        string,
-        bigint,
-        number,
-        bigint,
-        boolean,
-        boolean,
-        boolean,
-        bigint,
-        string
-      ];
+      })) as unknown as readonly any[];
 
       const [question, , , , optionCount, resolved] = marketInfo;
 

@@ -11,7 +11,7 @@ interface ValidationNoticeProps {
   status: "pending" | "validated" | "info";
   message?: string;
 }
-
+//
 export function ValidationNotice({
   marketId,
   status,

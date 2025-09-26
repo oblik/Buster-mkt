@@ -5,6 +5,8 @@ import {
   contractAbi,
   V2contractAddress,
   V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 
 // Cache for current prices
@@ -19,7 +21,7 @@ const CACHE_DURATION = 30 * 1000; // 30 seconds
 
 // V1 Market Info Contract Return
 type MarketInfoV1ContractReturn = readonly [
-  string, // question
+  string, // question//
   string, // optionA
   string, // optionB
   bigint, // endTime
@@ -38,9 +40,11 @@ type MarketInfoV2ContractReturn = readonly [
   bigint, // optionCount
   boolean, // resolved
   boolean, // disputed
+  number, // marketType
   boolean, // invalidated
   bigint, // winningOptionId
-  string // creator
+  string,
+  boolean
 ];
 
 async function getCurrentMarketPrice(marketId: string) {
@@ -49,37 +53,40 @@ async function getCurrentMarketPrice(marketId: string) {
 
     // Try V2 first (newer contract)
     try {
-      const v2MarketData = (await publicClient.readContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
+      // Read raw result and coerce to unknown first to avoid strict tuple/readonly conversion errors
+      const raw = (await publicClient.readContract({
+        address: PolicastViews,
+        abi: PolicastViewsAbi,
         functionName: "getMarketInfo",
         args: [marketIdBigInt],
-      })) as MarketInfoV2ContractReturn;
+      })) as unknown;
 
-      // If successful and market exists, return V2 data
-      if (v2MarketData[0]) {
-        // question exists
-        // For V2 multi-option markets, we need to get option shares separately
-        // For now, return simulated multi-option pricing
-        const optionCount = Number(v2MarketData[4]);
-        const prices: number[] = [];
+      const v2Arr = (raw as readonly any[]) || [];
+      if (v2Arr.length > 0) {
+        // Map both 12- and 13-element shapes to stable properties
+        const optionCount = Number(v2Arr[4] ?? 0);
 
         // Simulate option prices (in real implementation, fetch from contract)
+        const prices: number[] = [];
         let remaining = 1.0;
-        for (let i = 0; i < optionCount - 1; i++) {
-          const price = Math.random() * remaining * 0.8; // Leave some for remaining options
+        for (let i = 0; i < Math.max(0, optionCount - 1); i++) {
+          const price = Math.random() * remaining * 0.8;
           prices.push(price);
           remaining -= price;
         }
-        prices.push(remaining); // Last option gets remaining probability
+        prices.push(remaining);
+
+        // resolved flag and winningOptionId positions are stable in our known shapes
+        const resolved = Boolean(v2Arr[5]);
+        const winningOptionId = resolved ? Number(v2Arr[9] ?? 0) : null;
 
         return {
           version: "v2",
           optionCount,
           optionPrices: prices.map((p) => Math.round(p * 1000) / 1000),
           totalShares: Math.floor(Math.random() * 50000) + 10000, // Simulated
-          resolved: v2MarketData[5],
-          winningOptionId: v2MarketData[5] ? Number(v2MarketData[8]) : null,
+          resolved,
+          winningOptionId,
           timestamp: Date.now(),
         };
       }

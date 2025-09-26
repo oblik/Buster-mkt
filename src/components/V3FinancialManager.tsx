@@ -18,9 +18,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { V2contractAddress, V2contractAbi } from "@/constants/contract";
+import {
+  V2contractAddress,
+  V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
+} from "@/constants/contract";
 import { Loader2, DollarSign, TrendingUp, Coins } from "lucide-react";
-
+//
 interface V3FinancialManagerProps {
   marketId?: number; // Optional for platform-wide management
   isCreator?: boolean;
@@ -47,73 +52,84 @@ export function V3FinancialManager({
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash });
 
-  // Fetch market info to determine creator
-  const { data: marketInfo } = useReadContract({
+  // Fetch market basic info & extended meta to determine creator and status
+  const { data: marketBasic } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketInfo",
+    functionName: "getMarketBasicInfo",
     args: marketId !== undefined ? [BigInt(marketId)] : undefined,
     query: { enabled: isConnected && marketId !== undefined },
   });
 
-  // Fetch market financial data
-  const { data: marketFinancials, refetch: refetchFinancials } =
-    useReadContract({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "getMarketFinancials",
-      args: marketId !== undefined ? [BigInt(marketId)] : undefined,
-      query: { enabled: isConnected && marketId !== undefined },
-    });
-
-  // Fetch LP info if user might be LP
-  const { data: lpInfo, refetch: refetchLPInfo } = useReadContract({
+  const { data: marketExtended } = useReadContract({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getLPInfo",
-    args:
-      marketId !== undefined && address
-        ? [BigInt(marketId), address]
-        : undefined,
-    query: {
-      enabled: isConnected && Boolean(address) && marketId !== undefined,
-    },
+    functionName: "getMarketExtendedMeta",
+    args: marketId !== undefined ? [BigInt(marketId)] : undefined,
+    query: { enabled: isConnected && marketId !== undefined },
   });
 
-  // Fetch platform stats if fee collector
-  const { data: platformStats, refetch: refetchPlatformStats } =
+  // Fetch market fee status instead of financials
+  const { data: marketFeeStatus, refetch: refetchFeeStatus } = useReadContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
+    functionName: "getMarketFeeStatus",
+    args: marketId !== undefined ? [BigInt(marketId)] : undefined,
+    query: { enabled: isConnected && marketId !== undefined },
+  });
+
+  // Fetch user portfolio for LP info
+  const { data: userPortfolio, refetch: refetchUserPortfolio } =
     useReadContract({
       address: V2contractAddress,
       abi: V2contractAbi,
-      functionName: "getPlatformStats",
+      functionName: "userPortfolios",
+      args: address ? [address] : undefined,
+      query: { enabled: isConnected && Boolean(address) },
+    });
+
+  // Fetch platform fee breakdown instead of platform stats
+  const { data: platformFeeBreakdown, refetch: refetchPlatformFeeBreakdown } =
+    useReadContract({
+      address: PolicastViews,
+      abi: PolicastViewsAbi,
+      functionName: "getPlatformFeeBreakdown",
       query: { enabled: isConnected && isFeeCollector },
     });
 
   // Determine actual roles based on contract data
   useEffect(() => {
-    if (marketInfo && address) {
-      const [, , , , , , , , , creator] = marketInfo as [
-        string,
-        string,
-        bigint,
-        number,
+    if (marketExtended && address) {
+      // getMarketExtendedMeta returns: [winningOptionId, disputed, validated, creator, earlyResolutionAllowed]
+      const extended = marketExtended as readonly [
         bigint,
         boolean,
         boolean,
-        boolean,
-        bigint,
-        string
+        `0x${string}`,
+        boolean
       ];
-      setActualIsCreator(creator.toLowerCase() === address.toLowerCase());
+      const creator = extended[3];
+      setActualIsCreator(
+        creator && address
+          ? creator.toLowerCase() === address.toLowerCase()
+          : false
+      );
     }
-  }, [marketInfo, address]);
+  }, [marketExtended, address]);
 
   useEffect(() => {
-    if (lpInfo && address) {
-      const [contribution] = lpInfo as [bigint, boolean, bigint];
-      setActualIsLP(contribution > 0n);
+    if (userPortfolio && address) {
+      // userPortfolios returns: [totalInvested, totalWinnings, unrealizedPnL, realizedPnL, tradeCount]
+      const [totalInvested] = userPortfolio as readonly [
+        bigint,
+        bigint,
+        bigint,
+        bigint,
+        bigint
+      ];
+      setActualIsLP(totalInvested > 0n);
     }
-  }, [lpInfo, address]);
+  }, [userPortfolio, address]);
 
   // Handle transaction success
   useEffect(() => {
@@ -130,9 +146,9 @@ export function V3FinancialManager({
     setIsRefreshing(true);
     try {
       await Promise.all([
-        refetchFinancials(),
-        actualIsLP ? refetchLPInfo() : Promise.resolve(),
-        isFeeCollector ? refetchPlatformStats() : Promise.resolve(),
+        refetchFeeStatus(),
+        refetchUserPortfolio(),
+        isFeeCollector ? refetchPlatformFeeBreakdown() : Promise.resolve(),
       ]);
       toast({
         title: "Data Refreshed",
@@ -147,73 +163,6 @@ export function V3FinancialManager({
       });
     } finally {
       setIsRefreshing(false);
-    }
-  };
-
-  // Withdraw admin liquidity (for market creator)
-  const handleWithdrawAdminLiquidity = async () => {
-    if (marketId === undefined) {
-      toast({
-        title: "Error",
-        description: "Market ID is required for this operation.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      toast({
-        title: "Transaction Submitted",
-        description: "Withdrawing admin liquidity...",
-      });
-
-      await writeContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "withdrawAdminLiquidity",
-        args: [BigInt(marketId)],
-      });
-    } catch (error: any) {
-      console.error("Error withdrawing admin liquidity:", error);
-      toast({
-        title: "Transaction Failed",
-        description:
-          error?.shortMessage || "Failed to withdraw admin liquidity.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Claim LP rewards
-  const handleClaimLPRewards = async () => {
-    if (marketId === undefined) {
-      toast({
-        title: "Error",
-        description: "Market ID is required for this operation.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      toast({
-        title: "Transaction Submitted",
-        description: "Claiming LP rewards...",
-      });
-
-      await writeContract({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "claimLPRewards",
-        args: [BigInt(marketId)],
-      });
-    } catch (error: any) {
-      console.error("Error claiming LP rewards:", error);
-      toast({
-        title: "Transaction Failed",
-        description: error?.shortMessage || "Failed to claim LP rewards.",
-        variant: "destructive",
-      });
     }
   };
 
@@ -281,8 +230,13 @@ export function V3FinancialManager({
     }
 
     // Platform-wide fee collection interface
-    const [totalFeesCollected, feeCollector, totalMarkets, totalTrades] =
-      platformStats || [];
+    const [
+      cumulativeFees,
+      lockedFees,
+      unlockedFees,
+      withdrawnFees,
+      feeCollectorAddr,
+    ] = platformFeeBreakdown || [];
 
     return (
       <div className="space-y-4">
@@ -313,18 +267,18 @@ export function V3FinancialManager({
               <div>
                 <p className="text-sm text-gray-500">Total Fees Collected</p>
                 <p className="text-lg font-semibold">
-                  {formatAmount(totalFeesCollected)} buster
+                  {formatAmount(cumulativeFees)} buster
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Total Markets</p>
+                <p className="text-sm text-gray-500">Available Fees</p>
                 <p className="text-lg font-semibold">
-                  {totalMarkets?.toString()}
+                  {formatAmount(unlockedFees)} buster
                 </p>
               </div>
             </div>
 
-            {totalFeesCollected && totalFeesCollected > 0n && (
+            {unlockedFees && unlockedFees > 0n && (
               <Button
                 onClick={handleWithdrawPlatformFees}
                 disabled={isPending || isConfirming}
@@ -344,16 +298,21 @@ export function V3FinancialManager({
     );
   }
 
+  const [collected, unlocked, lockedPortion] = marketFeeStatus || [];
   const [
-    adminInitialLiquidity,
-    userLiquidity,
-    platformFeesCollected,
-    ammFeesCollected,
-    adminLiquidityClaimed,
-  ] = marketFinancials || [];
-  const [lpContribution, lpRewardsClaimed, estimatedRewards] = lpInfo || [];
-  const [totalFeesCollected, feeCollector, totalMarkets, totalTrades] =
-    platformStats || [];
+    totalInvested = 0n,
+    totalWinnings = 0n,
+    unrealizedPnL = 0n,
+    realizedPnL = 0n,
+    tradeCount = 0n,
+  ] = userPortfolio || [];
+  const [
+    cumulativeFees,
+    lockedFees,
+    unlockedFees,
+    withdrawnFees,
+    feeCollectorAddr,
+  ] = platformFeeBreakdown || [];
 
   return (
     <div className="space-y-4">
@@ -362,7 +321,7 @@ export function V3FinancialManager({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5" />
-            Market Financial Breakdown
+            Market Fee Status
             <Button
               variant="ghost"
               size="sm"
@@ -380,128 +339,82 @@ export function V3FinancialManager({
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-gray-500">Admin Initial Liquidity</p>
+              <p className="text-sm text-gray-500">Fees Collected</p>
               <p className="text-lg font-semibold">
-                {formatAmount(adminInitialLiquidity)} buster
+                {formatAmount(collected)} buster
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">User Liquidity</p>
+              <p className="text-sm text-gray-500">Locked Portion</p>
               <p className="text-lg font-semibold">
-                {formatAmount(userLiquidity)} buster
+                {formatAmount(lockedPortion)} buster
               </p>
             </div>
-            <div>
-              <p className="text-sm text-gray-500">Platform Fees Collected</p>
-              <p className="text-lg font-semibold">
-                {formatAmount(platformFeesCollected)} buster
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">AMM Fees for LPs</p>
-              <p className="text-lg font-semibold">
-                {formatAmount(ammFeesCollected)} buster
-              </p>
-            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={unlocked ? "default" : "secondary"}>
+              {unlocked ? "Unlocked" : "Locked"}
+            </Badge>
+            <span className="text-sm text-gray-500">
+              Fees {unlocked ? "can" : "cannot"} be withdrawn
+            </span>
           </div>
         </CardContent>
       </Card>
 
-      {/* Admin Liquidity Recovery */}
-      {actualIsCreator &&
-        adminInitialLiquidity &&
-        adminInitialLiquidity > 0n &&
-        !adminLiquidityClaimed && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Coins className="h-5 w-5" />
-                Admin Liquidity Recovery
-              </CardTitle>
-              <CardDescription>
-                Recover your initial liquidity investment after market
-                resolution
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Recoverable Amount</p>
-                  <p className="text-lg font-bold text-green-600">
-                    {formatAmount(adminInitialLiquidity)} buster
-                  </p>
-                </div>
-                <Button
-                  onClick={handleWithdrawAdminLiquidity}
-                  disabled={isPending || isConfirming}
-                  className="flex items-center gap-2"
-                >
-                  {isPending || isConfirming ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Coins className="h-4 w-4" />
-                  )}
-                  Withdraw Liquidity
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-      {/* LP Rewards */}
-      {actualIsLP && lpContribution && lpContribution > 0n && (
+      {/* User Portfolio */}
+      {userPortfolio && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              Liquidity Provider Rewards
+              Your Portfolio
             </CardTitle>
             <CardDescription>
-              Claim your share of AMM trading fees
+              Your trading activity and performance
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">Your LP Contribution</p>
+                <p className="text-sm text-gray-500">Total Invested</p>
                 <p className="text-lg font-semibold">
-                  {formatAmount(lpContribution)} buster
+                  {formatAmount(totalInvested)} buster
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Estimated Rewards</p>
+                <p className="text-sm text-gray-500">Total Winnings</p>
                 <p className="text-lg font-semibold">
-                  {formatAmount(estimatedRewards)} buster
+                  {formatAmount(totalWinnings)} buster
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Realized P&L</p>
+                <p
+                  className={`text-lg font-semibold ${
+                    realizedPnL >= 0n ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {realizedPnL < 0n ? "-" : ""}
+                  {formatAmount(
+                    realizedPnL < 0n ? -realizedPnL : realizedPnL
+                  )}{" "}
+                  buster
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Trade Count</p>
+                <p className="text-lg font-semibold">
+                  {tradeCount?.toString()}
                 </p>
               </div>
             </div>
-
-            {!lpRewardsClaimed && estimatedRewards && estimatedRewards > 0n && (
-              <Button
-                onClick={handleClaimLPRewards}
-                disabled={isPending || isConfirming}
-                className="w-full flex items-center gap-2"
-              >
-                {isPending || isConfirming ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <TrendingUp className="h-4 w-4" />
-                )}
-                Claim LP Rewards
-              </Button>
-            )}
-
-            {lpRewardsClaimed && (
-              <Badge variant="secondary" className="w-full justify-center">
-                Rewards Already Claimed
-              </Badge>
-            )}
           </CardContent>
         </Card>
       )}
 
       {/* Platform Fee Collection */}
-      {isFeeCollector && platformStats && (
+      {isFeeCollector && platformFeeBreakdown && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -517,18 +430,18 @@ export function V3FinancialManager({
               <div>
                 <p className="text-sm text-gray-500">Total Fees Collected</p>
                 <p className="text-lg font-semibold">
-                  {formatAmount(totalFeesCollected)} buster
+                  {formatAmount(cumulativeFees)} buster
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Total Markets</p>
+                <p className="text-sm text-gray-500">Available Fees</p>
                 <p className="text-lg font-semibold">
-                  {totalMarkets?.toString()}
+                  {formatAmount(unlockedFees)} buster
                 </p>
               </div>
             </div>
 
-            {totalFeesCollected && totalFeesCollected > 0n && (
+            {unlockedFees && unlockedFees > 0n && (
               <Button
                 onClick={handleWithdrawPlatformFees}
                 disabled={isPending || isConfirming}

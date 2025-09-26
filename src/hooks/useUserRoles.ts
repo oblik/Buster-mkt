@@ -16,13 +16,16 @@ interface UserRoles {
 }
 
 const QUESTION_CREATOR_ROLE =
-  "0x1234567890123456789012345678901234567890123456789012345678901234"; // This should be the actual keccak256 hash
+  "0xef485be696bbc0c91ad541bbd553ffb5bd0e18dac30ba76e992dda23cb807a8a";
 const QUESTION_RESOLVE_ROLE =
-  "0x1234567890123456789012345678901234567890123456789012345678901235"; // This should be the actual keccak256 hash
+  "0xdcee1d35c83a32b436264a5c9afd68685c124f3f9097e87804c55410e67fc59a";
 const MARKET_VALIDATOR_ROLE =
-  "0x1234567890123456789012345678901234567890123456789012345678901236"; // This should be the actual keccak256 hash
+  "0xd486618b282cb35034d59c30c062b5b3822d6cdf87ec459191ce7f5b7b8a4873";
 const DEFAULT_ADMIN_ROLE =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+const PAUSER_ROLE =
+  "0x65d7a28e3265b37a6474929f336521b332c1681b933f6cb9f3376673440d862a";
 
 export function useUserRoles(): UserRoles {
   const { address, isConnected } = useAccount();
@@ -78,6 +81,15 @@ export function useUserRoles(): UserRoles {
     abi: V2contractAbi,
     functionName: "hasRole",
     args: [MARKET_VALIDATOR_ROLE, address as `0x${string}`],
+    query: { enabled: isConnected && !!address },
+  });
+
+  //CHECK IF USER HAS PAUSER_ROLE (considered admin)
+  const { data: hasPauserRole } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "hasRole",
+    args: [PAUSER_ROLE, address as `0x${string}`],
     query: { enabled: isConnected && !!address },
   });
 

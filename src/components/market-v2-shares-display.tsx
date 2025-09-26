@@ -8,7 +8,7 @@ interface MarketV2SharesDisplayProps {
   options: MarketOption[];
 }
 
-// Helper function to format shares amount
+// Helper function to format shares amount//
 function formatShares(shares: bigint, decimals: number = 18): string {
   const formatted = Number(shares) / Math.pow(10, decimals);
   if (formatted < 0.01) return formatted.toFixed(4);

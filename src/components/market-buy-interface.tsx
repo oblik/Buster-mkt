@@ -37,7 +37,7 @@ interface MarketBuyInterfaceProps {
     totalOptionBShares: bigint;
   };
 }
-
+//
 type BuyingStep =
   | "initial"
   | "amount"
@@ -117,8 +117,15 @@ export function MarketBuyInterface({
     mutation: {
       onSuccess: (data) => {
         console.log("=== BATCH TRANSACTION CALLBACK ===");
-        console.log("Batch transaction submitted with id:", data.id);
-        console.log("Batch capabilities:", data.capabilities);
+        if (!data || typeof data !== "object" || !("id" in data)) {
+          console.warn(
+            "Batch transaction response missing .id, response:",
+            data
+          );
+        } else {
+          console.log("Batch transaction submitted with id:", data.id);
+        }
+        console.log("Batch capabilities:", (data as any)?.capabilities);
 
         toast({
           title: "Batch Transaction Submitted",
@@ -184,9 +191,16 @@ export function MarketBuyInterface({
     isError: callsStatusError,
     error: callsStatusErrorMsg,
   } = useWaitForCallsStatus({
-    id: callsData?.id as `0x${string}`,
+    id:
+      callsData && typeof callsData === "object" && "id" in callsData
+        ? (callsData.id as `0x${string}`)
+        : undefined,
     query: {
-      enabled: !!callsData?.id,
+      enabled: !!(
+        callsData &&
+        typeof callsData === "object" &&
+        "id" in callsData
+      ),
       refetchInterval: 1000, // Check every second
     },
   });
@@ -729,8 +743,19 @@ export function MarketBuyInterface({
       }
 
       // Try the batch transaction
+      // Ensure addresses are typed as `0x${string}` so the sendCalls typing is satisfied.
+      const tokenAddr = tokenAddress as `0x${string}`;
+      const contractAddr = contractAddress as `0x${string}`;
+
+      // Rebuild a typed calls array so `to` is `0x${string}` and `data` is `0x${string}`
+      const typedBatchCalls: { to: `0x${string}`; data: `0x${string}` }[] =
+        batchCalls.map((c) => ({
+          to: c.to as `0x${string}`,
+          data: c.data as `0x${string}`,
+        }));
+
       sendCalls({
-        calls: batchCalls,
+        calls: typedBatchCalls,
       });
     } catch (error: unknown) {
       console.error("Purchase error:", error);
