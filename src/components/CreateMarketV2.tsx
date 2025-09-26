@@ -41,50 +41,19 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useUserRoles } from "@/hooks/useUserRoles";
+import {
+  MIN_INITIAL_LIQUIDITY,
+  MarketCategory,
+  MarketType,
+  CATEGORY_LABELS,
+  MARKET_TYPE_LABELS,
+  QUESTION_CREATOR_ROLE,
+} from "@/lib/constants";
 
 interface MarketOption {
   name: string;
   description: string;
 }
-
-enum MarketCategory {
-  POLITICS = 0,
-  SPORTS = 1,
-  ENTERTAINMENT = 2,
-  TECHNOLOGY = 3,
-  ECONOMICS = 4,
-  SCIENCE = 5,
-  WEATHER = 6,
-  OTHER = 7,
-}
-
-enum MarketType {
-  PAID = 0,
-  FREE_ENTRY = 1,
-}
-//
-// Minimum initial liquidity (tokens) required for ANY market. Business rule update 2025-09-26.
-// Centralized constant to avoid magic numbers in validations & UI copy.
-const MIN_INITIAL_LIQUIDITY = 4000;
-const CATEGORY_LABELS = {
-  [MarketCategory.POLITICS]: "Politics",
-  [MarketCategory.SPORTS]: "Sports",
-  [MarketCategory.ENTERTAINMENT]: "Entertainment",
-  [MarketCategory.TECHNOLOGY]: "Technology",
-  [MarketCategory.ECONOMICS]: "Economics",
-  [MarketCategory.SCIENCE]: "Science",
-  [MarketCategory.WEATHER]: "Weather",
-  [MarketCategory.OTHER]: "Other",
-};
-
-const MARKET_TYPE_LABELS = {
-  [MarketType.PAID]: "Paid Market",
-  [MarketType.FREE_ENTRY]: "Free Entry Market",
-};
-
-// Role hash constants (matching Solidity keccak256)
-const QUESTION_CREATOR_ROLE =
-  "0xef485be696bbc0c91ad541bbd553ffb5bd0e18dac30ba76e992dda23cb807a8a"; // keccak256("QUESTION_CREATOR_ROLE")
 
 export function CreateMarketV2() {
   const { isConnected, address } = useAccount();
@@ -221,19 +190,19 @@ export function CreateMarketV2() {
   // Overload A (paid): (question, description, optionNames, optionDescriptions, duration, category, marketType, initialLiquidity, earlyResolutionAllowed)
   // Overload B (free): same + freeParams tuple { maxFreeParticipants, tokensPerParticipant }
   type PaidArgsTuple = [
-    string,
-    string,
-    string[],
-    string[],
-    bigint,
-    MarketCategory,
-    MarketType,
-    bigint,
-    boolean
+    string, // question: The market question text
+    string, // description: Detailed market description and resolution criteria
+    string[], // optionNames: Array of option names (e.g., ["Yes", "No"])
+    string[], // optionDescriptions: Array of option descriptions
+    bigint, // duration: Market duration in seconds
+    MarketCategory, // category: Market category enum (Politics, Sports, etc.)
+    MarketType, // marketType: Market type enum (Paid or Free Entry)
+    bigint, // initialLiquidity: Initial liquidity in wei (18 decimals)
+    boolean // earlyResolutionAllowed: Whether early resolution is permitted
   ];
   type FreeArgsTuple = [
     ...PaidArgsTuple,
-    { maxFreeParticipants: bigint; tokensPerParticipant: bigint }
+    { maxFreeParticipants: bigint; tokensPerParticipant: bigint } // freeParams: Free market parameters
   ];
   const buildCreateMarketArgs = (): PaidArgsTuple | FreeArgsTuple => {
     const base: PaidArgsTuple = [
@@ -953,6 +922,7 @@ export function CreateMarketV2() {
                   type="number"
                   min="1"
                   max="365"
+                  placeholder="e.g., 7"
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                 />
@@ -970,6 +940,7 @@ export function CreateMarketV2() {
                   id="initialLiquidity"
                   type="number"
                   min={MIN_INITIAL_LIQUIDITY}
+                  placeholder="e.g., 5000"
                   value={initialLiquidity}
                   onChange={(e) => setInitialLiquidity(e.target.value)}
                 />

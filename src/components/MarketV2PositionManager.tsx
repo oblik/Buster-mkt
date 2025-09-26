@@ -14,7 +14,6 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { MarketV2SellInterface } from "./MarketV2SellInterface";
-import { MarketV2SwapInterface } from "./MarketV2SwapInterface";
 import { MarketV2, MarketOption } from "@/types/types";
 import {
   TrendingUp,
@@ -75,9 +74,7 @@ export function MarketV2PositionManager({
   onPositionUpdate,
 }: MarketV2PositionManagerProps) {
   const { address: accountAddress } = useAccount();
-  const [activeTab, setActiveTab] = useState<"overview" | "sell" | "swap">(
-    "overview"
-  );
+  const [activeTab, setActiveTab] = useState<"overview" | "sell">("overview");
   const [showZeroPositions, setShowZeroPositions] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -379,15 +376,12 @@ export function MarketV2PositionManager({
             value={activeTab}
             onValueChange={(value) => setActiveTab(value as any)}
           >
-            <TabsList className="grid w-full grid-cols-3 h-9 md:h-10">
+            <TabsList className="grid w-full grid-cols-2 h-9 md:h-10">
               <TabsTrigger value="overview" className="text-xs md:text-sm">
                 Overview
               </TabsTrigger>
               <TabsTrigger value="sell" className="text-xs md:text-sm">
                 Sell Shares
-              </TabsTrigger>
-              <TabsTrigger value="swap" className="text-xs md:text-sm">
-                Swap Shares
               </TabsTrigger>
             </TabsList>
 
@@ -524,15 +518,6 @@ export function MarketV2PositionManager({
                 market={market}
                 userShares={userSharesObject}
                 onSellComplete={handleRefresh}
-              />
-            </TabsContent>
-
-            <TabsContent value="swap" className="mt-3 md:mt-4">
-              <MarketV2SwapInterface
-                marketId={marketId}
-                market={market}
-                userShares={userSharesObject}
-                onSwapComplete={handleRefresh}
               />
             </TabsContent>
           </Tabs>
