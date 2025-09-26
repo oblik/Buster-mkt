@@ -15,6 +15,8 @@ import {
   V2contractAddress,
   V2contractAbi,
   publicClient,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 import { MultiOptionProgress } from "./multi-option-progress";
 import MarketTime from "./market-time";
@@ -159,8 +161,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
   // Fetch all options for this market
   const { data: marketInfo } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
     functionName: "getMarketInfo",
     args: [BigInt(index)],
   });

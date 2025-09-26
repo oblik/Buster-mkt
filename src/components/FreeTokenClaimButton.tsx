@@ -57,7 +57,14 @@ export function FreeTokenClaimButton({
     },
   });
 
-  // Get free market info (slots remaining, tokens per user, etc.)//
+  // Fetch free market info (expanded tuple per ABI: 6 values)
+  // getFreeMarketInfo returns:
+  // [0] maxFreeParticipants (uint256)
+  // [1] tokensPerParticipant (uint256)
+  // [2] currentFreeParticipants (uint256)
+  // [3] totalPrizePool (uint256)
+  // [4] remainingPrizePool (uint256)
+  // [5] isActive (bool)
   const { data: freeMarketInfo } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
@@ -68,11 +75,11 @@ export function FreeTokenClaimButton({
     },
   });
 
-  // Check if this is actually a free market
-  const { data: marketInfo } = (useReadContract as any)({
+  // Fetch basic info to reliably determine marketType (avoid brittle indexing of legacy getMarketInfo)
+  const { data: marketBasic } = (useReadContract as any)({
     address: V2contractAddress,
     abi: V2contractAbi,
-    functionName: "getMarketInfo",
+    functionName: "getMarketBasicInfo",
     args: [BigInt(marketId)],
     query: {
       refetchInterval: 30000, // Check every 30 seconds for market type
@@ -84,21 +91,67 @@ export function FreeTokenClaimButton({
   const hasUserClaimed = _claimStatus ? _claimStatus[0] : false;
   const tokensReceived = _claimStatus ? _claimStatus[1] : 0n;
 
-  // Extract free market info
-  const _freeMarketInfo = freeMarketInfo as
-    | [bigint, bigint, bigint]
+  // Parse free market info with new shape
+  type FreeMarketInfoTuple =
+    | [
+        bigint, // maxFreeParticipants
+        bigint, // tokensPerParticipant
+        bigint, // currentFreeParticipants
+        bigint, // totalPrizePool
+        bigint, // remainingPrizePool
+        boolean // isActive
+      ]
     | undefined;
+  const _freeMarketInfo = freeMarketInfo as FreeMarketInfoTuple;
   const maxParticipants = _freeMarketInfo ? _freeMarketInfo[0] : 0n;
   const tokensPerParticipant = _freeMarketInfo ? _freeMarketInfo[1] : 0n;
   const currentParticipants = _freeMarketInfo ? _freeMarketInfo[2] : 0n;
+  const totalPrizePool = _freeMarketInfo ? _freeMarketInfo[3] : 0n;
+  const remainingPrizePool = _freeMarketInfo ? _freeMarketInfo[4] : 0n;
+  const freeIsActive = _freeMarketInfo ? _freeMarketInfo[5] : false;
   const slotsRemaining = maxParticipants - currentParticipants;
 
-  // Check if market is free entry (marketType = 1)
-  const isFreeMarket =
-    marketInfo &&
-    marketInfo.length > 7 &&
-    typeof marketInfo[7] === "number" &&
-    marketInfo[7] === 1;
+  // getMarketBasicInfo returns tuple: (question, description, endTime, category, optionCount, resolved, marketType, invalidated, totalVolume)
+  const _basic = marketBasic as
+    | [string, string, bigint, number, bigint, boolean, number, boolean, bigint]
+    | undefined;
+  const marketType = _basic ? _basic[6] : undefined;
+  const isFreeMarket = marketType === 1;
+
+  // Debug visibility reasoning
+  useEffect(() => {
+    if (!address) {
+      console.debug("[FreeTokenClaimButton] Hidden: no connected address");
+      return;
+    }
+    if (marketType !== undefined && marketType !== 1) {
+      console.debug(
+        `[FreeTokenClaimButton] Hidden: marketType=${marketType} (not free)`
+      );
+    }
+    if (_freeMarketInfo && !freeIsActive) {
+      console.debug(
+        `[FreeTokenClaimButton] Hidden: free market inactive isActive=${freeIsActive}`
+      );
+    }
+    if (hasUserClaimed) {
+      console.debug("[FreeTokenClaimButton] Hidden: user already claimed");
+    }
+    if (_freeMarketInfo && slotsRemaining <= 0n) {
+      console.debug(
+        `[FreeTokenClaimButton] Slots exhausted: ${currentParticipants.toString()}/${maxParticipants.toString()}`
+      );
+    }
+  }, [
+    address,
+    marketType,
+    _freeMarketInfo,
+    freeIsActive,
+    hasUserClaimed,
+    slotsRemaining,
+    currentParticipants,
+    maxParticipants,
+  ]);
 
   const handleClaimFreeTokens = async () => {
     if (!address) {
@@ -211,7 +264,7 @@ export function FreeTokenClaimButton({
   }, [hasUserClaimed]);
 
   // Don't show if not connected, not a free market, or already claimed
-  if (!address || !isFreeMarket || hasUserClaimed) {
+  if (!address || !isFreeMarket || hasUserClaimed || !freeIsActive) {
     return null;
   }
 

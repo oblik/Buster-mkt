@@ -169,7 +169,7 @@ export function MarketV2SwapInterface({
       await (writeContractAsync as any)({
         address: V2contractAddress,
         abi: V2contractAbi,
-        functionName: "ammSwap" as any,
+        functionName: "ammSwap",
         args: [
           BigInt(marketId),
           BigInt(fromOptionId),

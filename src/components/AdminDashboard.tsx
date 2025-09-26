@@ -10,8 +10,7 @@ import { MarketResolver } from "./MarketResolver";
 import { AdminRoleManager } from "./AdminRoleManager";
 import { MarketValidationManager } from "./MarketValidationManager";
 import { MarketInvalidationManager } from "./MarketInvalidationManager";
-// Deprecated: import { AdminLiquidityManager } from "./AdminLiquidityManager"; // OLD AMM - DEPRECATED
-// import { BatchDistributionManager } from "./BatchDistributionManager";//
+//
 import { V3AdminDashboard } from "./V3AdminDashboard";
 import { AdminWithdrawalsSection } from "./AdminWithdrawalsSection";
 import { useUserRoles } from "@/hooks/useUserRoles";

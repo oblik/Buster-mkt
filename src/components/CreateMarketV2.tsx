@@ -63,6 +63,9 @@ enum MarketType {
   FREE_ENTRY = 1,
 }
 //
+// Minimum initial liquidity (tokens) required for ANY market. Business rule update 2025-09-26.
+// Centralized constant to avoid magic numbers in validations & UI copy.
+const MIN_INITIAL_LIQUIDITY = 4000;
 const CATEGORY_LABELS = {
   [MarketCategory.POLITICS]: "Politics",
   [MarketCategory.SPORTS]: "Sports",
@@ -214,7 +217,50 @@ export function CreateMarketV2() {
     }
   };
 
+  // Helper: build argument list for overloaded createMarket.
+  // Overload A (paid): (question, description, optionNames, optionDescriptions, duration, category, marketType, initialLiquidity, earlyResolutionAllowed)
+  // Overload B (free): same + freeParams tuple { maxFreeParticipants, tokensPerParticipant }
+  type PaidArgsTuple = [
+    string,
+    string,
+    string[],
+    string[],
+    bigint,
+    MarketCategory,
+    MarketType,
+    bigint,
+    boolean
+  ];
+  type FreeArgsTuple = [
+    ...PaidArgsTuple,
+    { maxFreeParticipants: bigint; tokensPerParticipant: bigint }
+  ];
+  const buildCreateMarketArgs = (): PaidArgsTuple | FreeArgsTuple => {
+    const base: PaidArgsTuple = [
+      question,
+      description,
+      options.map((o) => o.name),
+      options.map((o) => o.description),
+      BigInt(Math.floor(parseFloat(duration) * 24 * 60 * 60)),
+      category,
+      marketType,
+      parseEther(initialLiquidity),
+      earlyResolutionAllowed,
+    ];
+    if (marketType === MarketType.FREE_ENTRY) {
+      const freeParams = {
+        maxFreeParticipants: BigInt(maxFreeParticipants || "0"),
+        tokensPerParticipant: parseEther(freeSharesPerUser || "0"),
+      };
+      return [...base, freeParams];
+    }
+    return base;
+  };
+
   // Pure validation used only for render-time checks (no side-effects)
+  // Rules:
+  //  All markets (paid & free): initialLiquidity >= 100 tokens required (ensures base depth).
+  //  Free params: maxFreeParticipants >=1, tokensPerParticipant >0 when FREE_ENTRY.
   const isFormValidNoSideEffects = (): boolean => {
     if (!question.trim()) return false;
     if (question.length > 200) return false;
@@ -227,9 +273,10 @@ export function CreateMarketV2() {
     if (isNaN(parseFloat(duration)) || parseFloat(duration) < 1) return false;
     if (
       isNaN(parseFloat(initialLiquidity)) ||
-      parseFloat(initialLiquidity) < 100
+      parseFloat(initialLiquidity) < MIN_INITIAL_LIQUIDITY
     )
       return false;
+    if (options.length > 10) return false; // hard upper bound safeguard
 
     if (marketType === MarketType.FREE_ENTRY) {
       if (!maxFreeParticipants.trim() || !freeSharesPerUser.trim())
@@ -343,10 +390,18 @@ export function CreateMarketV2() {
       });
       return false;
     }
-    if (parseFloat(initialLiquidity) < 100) {
+    if (parseFloat(initialLiquidity) < MIN_INITIAL_LIQUIDITY) {
       toast({
         title: "Error",
-        description: "Initial liquidity must be at least 100 tokens",
+        description: `Initial liquidity must be at least ${MIN_INITIAL_LIQUIDITY} tokens`,
+        variant: "destructive",
+      });
+      return false;
+    }
+    if (options.length > 10) {
+      toast({
+        title: "Error",
+        description: "A maximum of 10 options is allowed",
         variant: "destructive",
       });
       return false;
@@ -424,10 +479,10 @@ export function CreateMarketV2() {
       const optionDescriptions = options.map((opt) => opt.description);
 
       // Calculate required approval amount
-      let requiredApproval = liquidityWei;
+      let requiredApproval = liquidityWei; // Paid default = seed liquidity
       if (marketType === MarketType.FREE_ENTRY) {
-        const tokensPerUser = parseEther(freeSharesPerUser);
-        const maxParticipants = BigInt(maxFreeParticipants);
+        const tokensPerUser = parseEther(freeSharesPerUser || "0");
+        const maxParticipants = BigInt(maxFreeParticipants || "0");
         const totalPrizePool = tokensPerUser * maxParticipants;
         requiredApproval = liquidityWei + totalPrizePool;
       }
@@ -447,46 +502,41 @@ export function CreateMarketV2() {
         });
       }
 
-      // Add market creation call
-      const createMarketCall =
-        marketType === MarketType.FREE_ENTRY
-          ? {
-              to: V2contractAddress as `0x${string}`,
-              data: encodeFunctionData({
-                abi: V2contractAbi,
-                functionName: "createFreeMarket",
-                args: [
-                  question,
-                  description,
-                  optionNames,
-                  optionDescriptions,
-                  BigInt(durationInSeconds),
-                  category,
-                  BigInt(maxFreeParticipants),
-                  parseEther(freeSharesPerUser),
-                  liquidityWei,
-                  earlyResolutionAllowed,
-                ],
-              }),
-            }
-          : {
-              to: V2contractAddress as `0x${string}`,
-              data: encodeFunctionData({
-                abi: V2contractAbi,
-                functionName: "createMarket",
-                args: [
-                  question,
-                  description,
-                  optionNames,
-                  optionDescriptions,
-                  BigInt(durationInSeconds),
-                  category,
-                  marketType,
-                  liquidityWei,
-                  earlyResolutionAllowed,
-                ],
-              }),
-            };
+      // Add market creation call (single helper builds overload-specific args)
+      const builtArgs = buildCreateMarketArgs();
+      // Narrow union for viem: if length === 10 it's free variant else paid
+      const createMarketCall = {
+        to: V2contractAddress as `0x${string}`,
+        data: encodeFunctionData({
+          abi: V2contractAbi,
+          functionName: "createMarket",
+          args:
+            builtArgs.length === 10
+              ? (builtArgs as [
+                  string,
+                  string,
+                  string[],
+                  string[],
+                  bigint,
+                  number,
+                  number,
+                  bigint,
+                  boolean,
+                  { maxFreeParticipants: bigint; tokensPerParticipant: bigint }
+                ])
+              : (builtArgs as [
+                  string,
+                  string,
+                  string[],
+                  string[],
+                  bigint,
+                  number,
+                  number,
+                  bigint,
+                  boolean
+                ]),
+        }),
+      };
 
       calls.push(createMarketCall);
 
@@ -625,9 +675,8 @@ export function CreateMarketV2() {
           });
           return;
         }
-
-        const tokensPerUser = parseEther(freeSharesPerUser);
-        const maxParticipants = BigInt(maxFreeParticipants);
+        const tokensPerUser = parseEther(freeSharesPerUser || "0");
+        const maxParticipants = BigInt(maxFreeParticipants || "0");
         const totalPrizePool = tokensPerUser * maxParticipants;
         requiredApproval = liquidityWei + totalPrizePool;
         console.log("💰 Total required approval:", requiredApproval.toString());
@@ -665,45 +714,39 @@ export function CreateMarketV2() {
 
       // Add market creation call
       console.log("🏗️ Adding market creation to batch...");
-      const createMarketCall =
-        marketType === MarketType.FREE_ENTRY
-          ? {
-              to: V2contractAddress as `0x${string}`,
-              data: encodeFunctionData({
-                abi: V2contractAbi,
-                functionName: "createFreeMarket",
-                args: [
-                  question,
-                  description,
-                  optionNames,
-                  optionDescriptions,
-                  BigInt(durationInSeconds),
-                  category,
-                  BigInt(maxFreeParticipants),
-                  parseEther(freeSharesPerUser),
-                  liquidityWei,
-                  earlyResolutionAllowed,
-                ],
-              }),
-            }
-          : {
-              to: V2contractAddress as `0x${string}`,
-              data: encodeFunctionData({
-                abi: V2contractAbi,
-                functionName: "createMarket",
-                args: [
-                  question,
-                  description,
-                  optionNames,
-                  optionDescriptions,
-                  BigInt(durationInSeconds),
-                  category,
-                  marketType,
-                  liquidityWei,
-                  earlyResolutionAllowed,
-                ],
-              }),
-            };
+      const builtArgs2 = buildCreateMarketArgs();
+      const createMarketCall = {
+        to: V2contractAddress as `0x${string}`,
+        data: encodeFunctionData({
+          abi: V2contractAbi,
+          functionName: "createMarket",
+          args:
+            builtArgs2.length === 10
+              ? (builtArgs2 as [
+                  string,
+                  string,
+                  string[],
+                  string[],
+                  bigint,
+                  number,
+                  number,
+                  bigint,
+                  boolean,
+                  { maxFreeParticipants: bigint; tokensPerParticipant: bigint }
+                ])
+              : (builtArgs2 as [
+                  string,
+                  string,
+                  string[],
+                  string[],
+                  bigint,
+                  number,
+                  number,
+                  bigint,
+                  boolean
+                ]),
+        }),
+      };
 
       calls.push(createMarketCall);
 
@@ -921,12 +964,12 @@ export function CreateMarketV2() {
                   className="flex items-center gap-2"
                 >
                   <DollarSign className="h-4 w-4" />
-                  Initial Liquidity (buster) *
+                  Initial Liquidity (buster, min {MIN_INITIAL_LIQUIDITY}) *
                 </Label>
                 <Input
                   id="initialLiquidity"
                   type="number"
-                  min="100"
+                  min={MIN_INITIAL_LIQUIDITY}
                   value={initialLiquidity}
                   onChange={(e) => setInitialLiquidity(e.target.value)}
                 />
@@ -955,7 +998,12 @@ export function CreateMarketV2() {
           {/* Market Options */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">Market Options</h3>
+              <h3 className="text-lg font-medium flex items-center gap-2">
+                Market Options
+                <span className="text-xs font-normal text-gray-500">
+                  ({options.length}/10, min 2, max 10)
+                </span>
+              </h3>
               <Button
                 variant="outline"
                 size="sm"
@@ -1257,7 +1305,10 @@ export function CreateMarketV2() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Info className="h-4 w-4" />
-              <span>Market creation requires initial liquidity deposit</span>
+              <span>
+                Market creation requires an initial liquidity deposit of at
+                least {MIN_INITIAL_LIQUIDITY} tokens
+              </span>
             </div>
 
             <div className="flex gap-2">

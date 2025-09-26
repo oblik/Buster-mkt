@@ -196,8 +196,6 @@ export function AdminWithdrawalsSection() {
     if (!address) return;
 
     try {
-      // functionName may not exist in the in-repo ABI typings (ABI differs by contract version).
-      // Use `any` here to avoid TypeScript literal-union errors from the large `as const` ABI.
       let functionName: any;
       switch (type) {
         case "adminLiquidity":

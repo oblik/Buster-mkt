@@ -111,8 +111,8 @@ export function MarketV2BuyInterface({
 
   // Fetch market info (validated flag and type)
   const { data: marketInfo } = useReadContract({
-    address: V2contractAddress,
-    abi: V2contractAbi,
+    address: PolicastViews,
+    abi: PolicastViewsAbi,
     functionName: "getMarketInfo",
     args: [BigInt(marketId)],
   });
@@ -1194,6 +1194,10 @@ export function MarketV2BuyInterface({
         setAmount("");
         setIsBuying(false);
         refetchOptionData();
+        // Refresh token prices so UI reflects updated on-chain prices
+        if (typeof refetchTokenPrices === "function") {
+          refetchTokenPrices();
+        }
       }
     }
   }, [
@@ -1212,6 +1216,7 @@ export function MarketV2BuyInterface({
     market.options,
     toast,
     refetchOptionData,
+    refetchTokenPrices,
   ]);
 
   // Update container height

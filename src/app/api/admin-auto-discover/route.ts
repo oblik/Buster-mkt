@@ -176,8 +176,8 @@ async function checkMarketBatchForAdmin(
     try {
       // Get market info to check market status
       const marketInfo = (await (publicClient.readContract as any)({
-        address: V2contractAddress,
-        abi: V2contractAbi,
+        address: PolicastViews,
+        abi: PolicastViewsAbi,
         functionName: "getMarketInfo",
         args: [BigInt(marketId)],
       })) as unknown;
