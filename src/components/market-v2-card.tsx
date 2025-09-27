@@ -423,7 +423,11 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           !isInvalidated &&
           !isExpired && (
             <div className="mb-4">
-              <FreeTokenClaimButton marketId={index} />
+              <FreeTokenClaimButton
+                marketId={index}
+                marketTypeOverride={derivedMarketType}
+                showWhenDisconnected={true}
+              />
             </div>
           )}
         {options.length > 0 && (
