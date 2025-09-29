@@ -131,31 +131,10 @@ export function MarketV2BuyInterface({
     abi: PolicastViewsAbi,
     functionName: "getMarketOdds",
     args: [BigInt(marketId)],
-    query: {
-      // keep odds fresh after trades — poll every 2s so UI updates shortly after market-updated
-      refetchInterval: 2000,
-    },
   });
 
   // Convert contract odds to array of bigints
   const odds = (marketOdds as readonly bigint[]) || [];
-
-  // Helper to calculate probability from on-chain odds (matches MultiOptionProgress)
-  function calculateProbabilityFromOdds(oddsVal: bigint): number {
-    const oddsNumber = Number(oddsVal) / 1e18;
-    if (oddsNumber <= 0) return 0;
-    return Math.max(0, Math.min(100, (1 / oddsNumber) * 100));
-  }
-
-  // When on-chain odds are available, derive normalized probabilities and a normalization factor
-  const onChainProbabilities =
-    odds.length > 0 ? odds.map((o) => calculateProbabilityFromOdds(o)) : [];
-  const onChainTotalProbability = onChainProbabilities.reduce(
-    (s, p) => s + p,
-    0
-  );
-  const onChainNormalizationFactor =
-    onChainTotalProbability > 0 ? 100 / onChainTotalProbability : 0;
 
   // Check if we're using Farcaster connector
   const isFarcasterConnector =
@@ -953,17 +932,8 @@ export function MarketV2BuyInterface({
               }`,
             });
 
-            // REFRESH LOCAL HOOKS
+            // Refetch option data to update UI
             refetchOptionData();
-
-            // Notify other components (parent card, analytics, progress) to refresh
-            try {
-              window.dispatchEvent(
-                new CustomEvent("market-updated", { detail: { marketId } })
-              );
-            } catch (e) {
-              console.debug("market-updated event dispatch failed", e);
-            }
           } else if (
             approvalReceipt?.status === "success" &&
             purchaseReceipt?.status !== "success"
@@ -986,7 +956,6 @@ export function MarketV2BuyInterface({
             setBuyingStep("initial");
           }
         } else if (receipts && receipts.length === 1) {
-          // on single-receipt success also notify
           // Some wallets might return only 1 receipt even for successful batch
           const singleReceipt = receipts[0];
 
@@ -1009,13 +978,6 @@ export function MarketV2BuyInterface({
               }`,
             });
             refetchOptionData();
-            try {
-              window.dispatchEvent(
-                new CustomEvent("market-updated", { detail: { marketId } })
-              );
-            } catch (e) {
-              console.debug("market-updated event dispatch failed", e);
-            }
           } else {
             console.warn("⚠️ V2 Single receipt but not successful");
             setBuyingStep("batchPartialSuccess");
@@ -1041,13 +1003,6 @@ export function MarketV2BuyInterface({
               }`,
             });
             refetchOptionData();
-            try {
-              window.dispatchEvent(
-                new CustomEvent("market-updated", { detail: { marketId } })
-              );
-            } catch (e) {
-              console.debug("market-updated event dispatch failed", e);
-            }
           } else {
             console.warn("⚠️ V2 Some receipts failed");
             setBuyingStep("batchPartialSuccess");
@@ -1065,18 +1020,9 @@ export function MarketV2BuyInterface({
             }`,
           });
           refetchOptionData();
-          try {
-            window.dispatchEvent(
-              new CustomEvent("market-updated", { detail: { marketId } })
-            );
-          } catch (e) {
-            console.debug("market-updated event dispatch failed", e);
-          }
         }
         setIsProcessing(false);
       } else if (callsStatusData.status === "failure") {
-        // on partial/failure cases where purchase might still succeed, you may still want to notify —
-        // keep existing handling but consider dispatching event if you detect success in receipts.
         const receipts = callsStatusData.receipts;
 
         console.log(
@@ -1186,6 +1132,7 @@ export function MarketV2BuyInterface({
         setIsProcessing(false);
       } else if (callsStatusData.status === "pending") {
         console.log("⏳ V2 Batch calls still pending...");
+        // Keep waiting, the hook will refetch
       }
     }
 
@@ -1361,19 +1308,12 @@ export function MarketV2BuyInterface({
             <div className="grid gap-1">
               {market.options.map((option, index) => {
                 const tokenPrice = option.currentPrice;
-
-                // Use on-chain odds when present (normalize to 100% total) to match MultiOptionProgress
-                let probability = 0;
-                let oddsFormatted = 0;
-                if (odds.length > 0) {
-                  const rawProb = onChainProbabilities[index] || 0;
-                  const normalizedProb = rawProb * onChainNormalizationFactor;
-                  probability = normalizedProb;
-                  oddsFormatted = normalizedProb > 0 ? 100 / normalizedProb : 0;
-                } else {
-                  probability = calculateProbabilityFromTokenPrice(tokenPrice);
-                  oddsFormatted = calculateOddsFromTokenPrice(tokenPrice);
-                }
+                const probability =
+                  calculateProbabilityFromTokenPrice(tokenPrice);
+                const oddsFormatted =
+                  odds.length > 0
+                    ? Number(odds[index] || 0n) / 1e18
+                    : calculateOddsFromTokenPrice(tokenPrice);
                 const isSelected = selectedOptionId === index;
 
                 return (
@@ -1401,16 +1341,23 @@ export function MarketV2BuyInterface({
                         <p className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
                           {option.name}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {probability.toFixed(1)}% • {oddsFormatted.toFixed(2)}
+                        {/* <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {probability.toFixed(1)}% •{" "}
+                          {odds.length > 0
+                            ? (Number(odds[index] || 0n) / 1e18 / 100).toFixed(
+                                2
+                              )
+                            : (
+                                calculateOddsFromTokenPrice(tokenPrice) / 100
+                              ).toFixed(2)}
                           x odds
-                        </p>
+                        </p> */}
                       </div>
-                      <div className="text-right flex-shrink-0">
+                      {/* <div className="text-right flex-shrink-0">
                         <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                           {probability.toFixed(1)}buster
                         </p>
-                      </div>
+                      </div> */}
                     </div>
                   </button>
                 );
