@@ -119,6 +119,48 @@ export function MarketDetailsClient({
     `[MarketDetailsClient] Market version: ${market.version}, marketType: ${market.marketType}`
   );
 
+  // Normalize options so components always receive either string labels
+  // or well-formed MarketOption objects. Some fetchers return `options` as
+  // string[] while newer fetch paths return MarketOption[]; guard both.
+  const optionLabels: string[] = (market.options || []).map((opt, idx) =>
+    typeof opt === "string"
+      ? opt
+      : opt && typeof opt === "object"
+      ? String((opt as any).name ?? `Option ${idx + 1}`)
+      : `Option ${idx + 1}`
+  );
+
+  const normalizedOptionObjects: MarketOption[] = (market.options || []).map(
+    (opt, idx) => {
+      if (opt && typeof opt === "object") {
+        const o = opt as any;
+        return {
+          name: String(o.name ?? optionLabels[idx] ?? `Option ${idx + 1}`),
+          description: String(o.description ?? ""),
+          totalShares: BigInt(
+            o.totalShares ?? market.optionShares?.[idx] ?? 0n
+          ),
+          totalVolume: BigInt(o.totalVolume ?? 0n),
+          currentPrice: BigInt(o.currentPrice ?? 0n),
+          isActive:
+            typeof o.isActive !== "undefined"
+              ? Boolean(o.isActive)
+              : !market.resolved,
+        } as MarketOption;
+      }
+
+      // opt is a label string
+      return {
+        name: optionLabels[idx] ?? `Option ${idx + 1}`,
+        description: "",
+        totalShares: BigInt(market.optionShares?.[idx] ?? 0n),
+        totalVolume: 0n,
+        currentPrice: 0n,
+        isActive: !market.resolved,
+      } as MarketOption;
+    }
+  );
+
   const { isCreator, isLP, isFeeCollector, checkCreatorStatus, checkLPStatus } =
     useV3UserRoles();
   const [userRoles, setUserRoles] = useState({
@@ -322,9 +364,15 @@ export function MarketDetailsClient({
                     Winning Option
                   </div>
                   <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">
-                    {market.version === "v2" && market.options
-                      ? market.options[market.outcome] ||
-                        `Option ${market.outcome + 1}`
+                    {market.version === "v2" && optionLabels.length > 0
+                      ? optionLabels[
+                          Number(market.winningOptionId ?? market.outcome ?? 0)
+                        ] ??
+                        `Option ${
+                          Number(
+                            market.winningOptionId ?? market.outcome ?? 0
+                          ) + 1
+                        }`
                       : market.outcome === 1
                       ? market.optionA
                       : market.optionB}
@@ -379,14 +427,9 @@ export function MarketDetailsClient({
                     optionCount: BigInt(
                       market.optionCount || market.options?.length || 2
                     ),
-                    options: (market.options || []).map((option, index) => ({
-                      name: option || `Option ${index + 1}`,
-                      description: option || `Option ${index + 1}`,
-                      totalShares: market.optionShares?.[index] || 0n,
-                      totalVolume: 0n,
-                      currentPrice: 0n, // Will be fetched by the component
-                      isActive: !market.resolved,
-                    })) satisfies MarketOption[],
+                    // Use normalized option objects so the PositionManager always
+                    // receives a consistent MarketOption[] shape.
+                    options: normalizedOptionObjects,
                     resolved: market.resolved,
                     disputed: market.disputed || false,
                     validated: true,
@@ -445,7 +488,7 @@ export function MarketDetailsClient({
             market.options &&
             market.optionShares ? (
               <MarketProgress
-                options={market.options}
+                options={optionLabels}
                 optionShares={market.optionShares}
                 version="v2"
                 tokenDecimals={TOKEN_DECIMALS}
