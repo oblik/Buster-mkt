@@ -128,7 +128,7 @@ const FreeMarketBadge = () => {
   return (
     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 border border-green-200 shadow-sm">
       <Gift className="h-3 w-3" />
-      Free Entry
+      Free
     </span>
   );
 };
@@ -144,7 +144,7 @@ const EventBasedBadge = () => {
           clipRule="evenodd"
         />
       </svg>
-      Event-Based
+      ER
     </span>
   );
 };
@@ -159,6 +159,43 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   const [commentCount, setCommentCount] = useState<number>(0);
   const [options, setOptions] = useState<MarketOption[]>([]);
   const [totalVolume, setTotalVolume] = useState<bigint>(0n);
+  // Derived displayOptions: prefer detailed `options` (from /api) but fall back
+  // to a lightweight representation built from the passed-in `market` so the
+  // progress UI and other consumers can render immediately.
+  const displayOptions: MarketOption[] = (() => {
+    if (options && options.length > 0) return options;
+    const count =
+      Number(market.optionCount ?? market.options?.length ?? 0) || 0;
+    if (count <= 0) return [];
+    return Array.from({ length: count }).map((_, i) => {
+      const raw = market.options ? market.options[i] : undefined;
+      const name =
+        typeof raw === "string"
+          ? raw
+          : raw && typeof raw === "object"
+          ? String((raw as any).name ?? `Option ${i + 1}`)
+          : `Option ${i + 1}`;
+      const description =
+        raw && typeof raw === "object"
+          ? String((raw as any).description ?? "")
+          : "";
+      // MarketV2 type may not include on-chain optionShares in this shape.
+      // Use a safe access via `any` so TS doesn't error and fall back to 0n.
+      const maybeOptionShares = (market as any)?.optionShares;
+      const totalShares =
+        maybeOptionShares && typeof maybeOptionShares[i] !== "undefined"
+          ? BigInt(maybeOptionShares[i])
+          : 0n;
+      return {
+        name,
+        description,
+        totalShares,
+        totalVolume: 0n,
+        currentPrice: 0n,
+        isActive: !market.resolved,
+      } as MarketOption;
+    });
+  })();
 
   // Fetch full market info (legacy multi-field tuple)
   const { data: marketInfo } = useReadContract({
@@ -215,61 +252,146 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     query: { enabled: !!address },
   });
 
-  // Fetch options data with real-time prices
+  // Fetch options data: static from API (with cache-busting), real-time price from contract
   useEffect(() => {
+    let mounted = true;
+
     const fetchOptions = async () => {
-      if (!marketInfo) return;
+      try {
+        // Determine option count immediately from prop, fallback to on-chain marketInfo
+        const propCount = Number(market?.optionCount ?? 0) || 0;
+        const infoCount =
+          marketInfo && Array.isArray(marketInfo) && marketInfo.length > 4
+            ? Number(marketInfo[4])
+            : 0;
+        const optionCount =
+          propCount || infoCount || (market.options?.length ?? 0);
 
-      const optionCount = Number(marketInfo[4]); // optionCount from getMarketInfo
-      const optionsData: MarketOption[] = [];
-      let totalVol = 0n;
+        if (optionCount <= 0) {
+          // clear state if there are no options
+          if (mounted) {
+            setOptions([]);
+            setTotalVolume(0n);
+          }
+          return;
+        }
 
-      for (let i = 0; i < optionCount; i++) {
-        try {
-          // Get both static option data and real-time calculated price
-          const [optionResponse, priceData] = await Promise.all([
-            fetch(`/api/market-option?marketId=${index}&optionId=${i}`),
-            (publicClient.readContract as any)({
-              address: V2contractAddress,
-              abi: V2contractAbi,
-              functionName: "calculateCurrentPrice",
-              args: [BigInt(index), BigInt(i)],
-            }).catch(() => null), // Fallback if calculateCurrentPrice fails
-          ]);
+        const optionsData: MarketOption[] = [];
+        let totalVol = 0n;
 
-          if (optionResponse.ok) {
-            const option = await optionResponse.json();
-            let realTimePrice: bigint;
-            if (priceData !== null && priceData !== undefined) {
-              realTimePrice =
-                typeof priceData === "bigint"
-                  ? priceData
-                  : BigInt(priceData as string);
-            } else {
-              realTimePrice = BigInt(option.currentPrice);
+        for (let i = 0; i < optionCount; i++) {
+          try {
+            // Static metadata from local API (cache-busted)
+            const apiRes = await fetch(
+              `/api/market-option?marketId=${index}&optionId=${i}&t=${Date.now()}`
+            );
+            const apiJson = apiRes.ok ? await apiRes.json() : null;
+
+            // Real-time price from contract (calculateCurrentPrice). Fallback to apiJson.currentPrice.
+            let realTimePrice = 0n;
+            try {
+              const priceData = await (publicClient.readContract as any)({
+                address: V2contractAddress,
+                abi: V2contractAbi,
+                functionName: "calculateCurrentPrice",
+                args: [BigInt(index), BigInt(i)],
+              });
+              if (priceData !== undefined && priceData !== null) {
+                realTimePrice =
+                  typeof priceData === "bigint"
+                    ? priceData
+                    : BigInt(priceData.toString());
+              }
+            } catch (priceErr) {
+              // contract read may fail; fallback to API value if available
+              if (apiJson && apiJson.currentPrice) {
+                try {
+                  realTimePrice = BigInt(apiJson.currentPrice);
+                } catch {}
+              }
+              console.debug(
+                `calculateCurrentPrice fallback for market ${index} option ${i}`,
+                priceErr
+              );
             }
 
+            // Build option record using API metadata when present, otherwise safe defaults.
+            const optName = apiJson?.name ?? `Option ${i + 1}`;
+            const optDescription = apiJson?.description ?? "";
+            const optTotalShares = apiJson?.totalShares
+              ? BigInt(apiJson.totalShares)
+              : 0n;
+            const optTotalVolume = apiJson?.totalVolume
+              ? BigInt(apiJson.totalVolume)
+              : 0n;
+            const isActive = apiJson?.isActive ?? true;
+
             optionsData.push({
-              name: option.name,
-              description: option.description,
-              totalShares: BigInt(option.totalShares),
-              totalVolume: BigInt(option.totalVolume),
-              currentPrice: realTimePrice, // Use real-time calculated price
-              isActive: option.isActive,
+              name: optName,
+              description: optDescription,
+              totalShares: optTotalShares,
+              totalVolume: optTotalVolume,
+              currentPrice: realTimePrice,
+              isActive,
             });
-            totalVol += BigInt(option.totalVolume);
+
+            totalVol += optTotalVolume;
+          } catch (innerErr) {
+            // keep loop resilient; push a safe fallback entry so UI can render
+            console.error(
+              `Error loading option ${i} for market ${index}`,
+              innerErr
+            );
+            optionsData.push({
+              name: `Option ${i + 1}`,
+              description: "",
+              totalShares: 0n,
+              totalVolume: 0n,
+              currentPrice: 0n,
+              isActive: false,
+            });
           }
-        } catch (error) {
-          console.error(`Error fetching option ${i}:`, error);
+        }
+
+        if (mounted) {
+          setOptions(optionsData);
+          setTotalVolume(totalVol);
+        }
+      } catch (err) {
+        console.error("fetchOptions failed", err);
+        if (mounted) {
+          setOptions([]);
+          setTotalVolume(0n);
         }
       }
-
-      setOptions(optionsData);
-      setTotalVolume(totalVol);
     };
 
+    // initial fetch
     fetchOptions();
-  }, [index, marketInfo]);
+
+    // Listen for global market-updated events and refetch when this market changes
+    const handler = (e: Event) => {
+      try {
+        const ev = e as CustomEvent;
+        if (ev?.detail?.marketId === index) {
+          fetchOptions();
+        }
+      } catch (err) {
+        console.debug("market-updated handler error", err);
+      }
+    };
+    window.addEventListener("market-updated", handler);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("market-updated", handler);
+    };
+  }, [index, market, marketInfo]); // re-run when market prop or on-chain marketInfo changes
+
+  // Calculate probabilities from prices (pass to MultiOptionProgress)
+  const probabilities = displayOptions.map((option) =>
+    Math.max(0, Math.min(100, (Number(option.currentPrice) / 1e18) * 100))
+  );
 
   // Fetch comment count
   useEffect(() => {
@@ -290,10 +412,45 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     fetchCommentCount();
   }, [index]);
 
+  // Detect mobile viewport (used to conditionally hide the event-based badge
+  // when category + free + event badges would otherwise all appear).
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Use a breakpoint of 767px (matches max-width: 767px -> mobile)
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handle = (e: MediaQueryListEvent | MediaQueryList) =>
+      setIsMobile(e.matches);
+    // Initialize
+    setIsMobile(mq.matches);
+    // Add listener (support both modern and legacy APIs)
+    if ((mq as any).addEventListener) {
+      (mq as any).addEventListener("change", handle);
+    } else {
+      mq.addListener(handle);
+    }
+    return () => {
+      if ((mq as any).removeEventListener) {
+        (mq as any).removeEventListener("change", handle);
+      } else {
+        mq.removeListener(handle);
+      }
+    };
+  }, []);
+
   // Determine market status
   const isExpired = new Date(Number(market.endTime) * 1000) < new Date();
   const isResolved = market.resolved;
   const isInvalidated = market.invalidated;
+
+  // Badge visibility helpers
+  const hasCategoryBadge =
+    typeof market.category !== "undefined" && market.category !== null;
+  // When on mobile and all three badges (category, free, event) would appear,
+  // prefer showing only category + type (hide event badge).
+  const showEventBadge =
+    market.earlyResolutionAllowed &&
+    !(isMobile && hasCategoryBadge && derivedMarketType === 1);
 
   // If market is invalidated, show special message instead of normal UI
   if (isInvalidated) {
@@ -310,8 +467,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               <InvalidatedBadge />
               {/* Show free market badge if marketType === 1 */}
               {derivedMarketType === 1 && <FreeMarketBadge />}
-              {/* Show event-based badge if early resolution is allowed */}
-              {market.earlyResolutionAllowed && <EventBasedBadge />}
+              {/* Show event-based badge if early resolution is allowed (respect mobile cond) */}
+              {showEventBadge && <EventBasedBadge />}
             </div>
           </div>
           <CardTitle className="text-base leading-relaxed">
@@ -395,8 +552,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
             {isInvalidated && <InvalidatedBadge />}
             {/* Show free market badge if marketType === 1 */}
             {derivedMarketType === 1 && <FreeMarketBadge />}
-            {/* Show event-based badge if early resolution is allowed */}
-            {market.earlyResolutionAllowed && <EventBasedBadge />}
+            {/* Show event-based badge if early resolution is allowed (respect mobile cond) */}
+            {showEventBadge && <EventBasedBadge />}
           </div>
         </div>
         <CardTitle className="text-base leading-relaxed">
@@ -430,10 +587,11 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               />
             </div>
           )}
-        {options.length > 0 && (
+        {displayOptions.length > 0 && (
           <MultiOptionProgress
             marketId={index}
-            options={options}
+            options={displayOptions}
+            probabilities={probabilities} // New prop
             totalVolume={totalVolume}
             className="mb-4"
           />
@@ -448,8 +606,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
                   ? Number(market.winningOptionId) + 1
                   : 0
               }
-              optionA={options[0]?.name || "Option 1"}
-              optionB={options[1]?.name || "Option 2"}
+              optionA={displayOptions[0]?.name || "Option 1"}
+              optionB={displayOptions[1]?.name || "Option 2"}
             />
           ) : (
             <MarketPending />
@@ -466,7 +624,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               <MarketV2SharesDisplay
                 market={market}
                 userShares={userShares || []}
-                options={options}
+                options={displayOptions}
               />
               <Link href={`/market/${index}/details`}>
                 <Button variant="outline" size="sm" className="text-xs">

@@ -24,8 +24,29 @@ import {
   PolicastViews,
   PolicastViewsAbi,
 } from "@/constants/contract";
-import { Loader2, DollarSign, TrendingUp, Coins } from "lucide-react";
-//
+import { Loader2, DollarSign, TrendingUp } from "lucide-react";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+type PlatformFeeBreakdownTuple = readonly [
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  `0x${string}`
+];
+
+type MarketFinancialsTuple = readonly [
+  `0x${string}`,
+  boolean,
+  bigint,
+  bigint,
+  bigint,
+  bigint
+];
+
+type UserPortfolioTuple = readonly [bigint, bigint, bigint, bigint, bigint];
+
 interface V3FinancialManagerProps {
   marketId?: number; // Optional for platform-wide management
   isCreator?: boolean;
@@ -77,6 +98,15 @@ export function V3FinancialManager({
     args: marketId !== undefined ? [BigInt(marketId)] : undefined,
     query: { enabled: isConnected && marketId !== undefined },
   });
+
+  const { data: marketFinancials, refetch: refetchMarketFinancials } =
+    useReadContract({
+      address: PolicastViews,
+      abi: PolicastViewsAbi,
+      functionName: "getMarketFinancials",
+      args: marketId !== undefined ? [BigInt(marketId)] : undefined,
+      query: { enabled: isConnected && marketId !== undefined },
+    });
 
   // Fetch user portfolio for LP info
   const { data: userPortfolio, refetch: refetchUserPortfolio } =
@@ -147,6 +177,7 @@ export function V3FinancialManager({
     try {
       await Promise.all([
         refetchFeeStatus(),
+        refetchMarketFinancials(),
         refetchUserPortfolio(),
         isFeeCollector ? refetchPlatformFeeBreakdown() : Promise.resolve(),
       ]);
@@ -200,6 +231,35 @@ export function V3FinancialManager({
     });
   };
 
+  const formatAddress = (address: `0x${string}`) => {
+    if (!address || address === ZERO_ADDRESS) {
+      return "Not set";
+    }
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  const platformBreakdown = Array.isArray(platformFeeBreakdown)
+    ? (platformFeeBreakdown as PlatformFeeBreakdownTuple)
+    : undefined;
+  const cumulativeFees = platformBreakdown?.[0] ?? 0n;
+  const lockedFees = platformBreakdown?.[1] ?? 0n;
+  const unlockedFees = platformBreakdown?.[2] ?? 0n;
+  const withdrawnFees = platformBreakdown?.[3] ?? 0n;
+  const feeCollectorAddr = platformBreakdown?.[4] ?? ZERO_ADDRESS;
+
+  const portfolio = Array.isArray(userPortfolio)
+    ? (userPortfolio as UserPortfolioTuple)
+    : undefined;
+  const totalInvested = portfolio?.[0] ?? 0n;
+  const totalWinnings = portfolio?.[1] ?? 0n;
+  const unrealizedPnL = portfolio?.[2] ?? 0n;
+  const realizedPnL = portfolio?.[3] ?? 0n;
+  const tradeCount = portfolio?.[4] ?? 0n;
+
+  const marketFinancialTuple = Array.isArray(marketFinancials)
+    ? (marketFinancials as MarketFinancialsTuple)
+    : undefined;
+
   if (!isConnected) {
     return (
       <Card>
@@ -228,15 +288,6 @@ export function V3FinancialManager({
         </Card>
       );
     }
-
-    // Platform-wide fee collection interface
-    const [
-      cumulativeFees,
-      lockedFees,
-      unlockedFees,
-      withdrawnFees,
-      feeCollectorAddr,
-    ] = platformFeeBreakdown || [];
 
     return (
       <div className="space-y-4">
@@ -276,9 +327,28 @@ export function V3FinancialManager({
                   {formatAmount(unlockedFees)} buster
                 </p>
               </div>
+              <div>
+                <p className="text-sm text-gray-500">Locked Fees</p>
+                <p className="text-lg font-semibold">
+                  {formatAmount(lockedFees)} buster
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Withdrawn Fees</p>
+                <p className="text-lg font-semibold">
+                  {formatAmount(withdrawnFees)} buster
+                </p>
+              </div>
             </div>
 
-            {unlockedFees && unlockedFees > 0n && (
+            <div>
+              <p className="text-sm text-gray-500">Fee Collector</p>
+              <p className="text-sm font-mono text-gray-700">
+                {formatAddress(feeCollectorAddr)}
+              </p>
+            </div>
+
+            {unlockedFees > 0n && (
               <Button
                 onClick={handleWithdrawPlatformFees}
                 disabled={isPending || isConfirming}
@@ -298,21 +368,10 @@ export function V3FinancialManager({
     );
   }
 
-  const [collected, unlocked, lockedPortion] = marketFeeStatus || [];
-  const [
-    totalInvested = 0n,
-    totalWinnings = 0n,
-    unrealizedPnL = 0n,
-    realizedPnL = 0n,
-    tradeCount = 0n,
-  ] = userPortfolio || [];
-  const [
-    cumulativeFees,
-    lockedFees,
-    unlockedFees,
-    withdrawnFees,
-    feeCollectorAddr,
-  ] = platformFeeBreakdown || [];
+  const feesUnlocked = Boolean(marketFeeStatus);
+  const platformFeesCollected = marketFinancialTuple?.[5] ?? 0n;
+  const collected = platformFeesCollected;
+  const lockedPortion = feesUnlocked ? 0n : platformFeesCollected;
 
   return (
     <div className="space-y-4">
@@ -352,18 +411,18 @@ export function V3FinancialManager({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={unlocked ? "default" : "secondary"}>
-              {unlocked ? "Unlocked" : "Locked"}
+            <Badge variant={feesUnlocked ? "default" : "secondary"}>
+              {feesUnlocked ? "Unlocked" : "Locked"}
             </Badge>
             <span className="text-sm text-gray-500">
-              Fees {unlocked ? "can" : "cannot"} be withdrawn
+              Fees {feesUnlocked ? "can" : "cannot"} be withdrawn
             </span>
           </div>
         </CardContent>
       </Card>
 
       {/* User Portfolio */}
-      {userPortfolio && (
+      {portfolio && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -404,9 +463,7 @@ export function V3FinancialManager({
               </div>
               <div>
                 <p className="text-sm text-gray-500">Trade Count</p>
-                <p className="text-lg font-semibold">
-                  {tradeCount?.toString()}
-                </p>
+                <p className="text-lg font-semibold">{tradeCount.toString()}</p>
               </div>
             </div>
           </CardContent>
@@ -414,7 +471,7 @@ export function V3FinancialManager({
       )}
 
       {/* Platform Fee Collection */}
-      {isFeeCollector && platformFeeBreakdown && (
+      {isFeeCollector && platformBreakdown && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -439,9 +496,28 @@ export function V3FinancialManager({
                   {formatAmount(unlockedFees)} buster
                 </p>
               </div>
+              <div>
+                <p className="text-sm text-gray-500">Locked Fees</p>
+                <p className="text-lg font-semibold">
+                  {formatAmount(lockedFees)} buster
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Withdrawn Fees</p>
+                <p className="text-lg font-semibold">
+                  {formatAmount(withdrawnFees)} buster
+                </p>
+              </div>
             </div>
 
-            {unlockedFees && unlockedFees > 0n && (
+            <div>
+              <p className="text-sm text-gray-500">Fee Collector</p>
+              <p className="text-sm font-mono text-gray-700">
+                {formatAddress(feeCollectorAddr)}
+              </p>
+            </div>
+
+            {unlockedFees > 0n && (
               <Button
                 onClick={handleWithdrawPlatformFees}
                 disabled={isPending || isConfirming}

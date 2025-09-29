@@ -145,15 +145,25 @@ export function MarketV2SellInterface({
   });
 
   // Fetch token prices from PolicastViews
-  const { data: tokenPrices, refetch: refetchTokenPrices } = useReadContract({
+  const { data: marketOddsRaw, refetch: refetchMarketOdds } = useReadContract({
     address: PolicastViews,
     abi: PolicastViewsAbi,
-    functionName: "getMarketPricesInTokens",
+    functionName: "getMarketOdds",
     args: [BigInt(marketId)],
     query: {
       refetchInterval: 2000, // Refresh every 2 seconds
     },
-  });
+  }) as unknown as {
+    data?: readonly bigint[];
+    refetch: () => Promise<unknown>;
+  };
+
+  const tokenPrices = useMemo(() => {
+    if (!marketOddsRaw) return undefined;
+    return marketOddsRaw.map((probability) =>
+      probabilityToTokenPrice(probability as bigint)
+    );
+  }, [marketOddsRaw]);
 
   // Fetch current price for selected option
   const { data: optionData, refetch: refetchOptionData } = useReadContract({
@@ -302,7 +312,7 @@ export function MarketV2SellInterface({
 
       // Refresh data
       refetchOptionData();
-      refetchTokenPrices();
+      refetchMarketOdds();
 
       // Reset after delay
       setTimeout(() => {
@@ -317,6 +327,7 @@ export function MarketV2SellInterface({
     toast,
     onSellComplete,
     refetchOptionData,
+    refetchMarketOdds,
   ]);
 
   // Handle errors
@@ -348,7 +359,7 @@ export function MarketV2SellInterface({
 
   const currentPrice =
     tokenPrices && selectedOptionId !== null
-      ? (tokenPrices as readonly bigint[])[selectedOptionId]
+      ? tokenPrices[selectedOptionId] ?? 0n
       : optionData?.[4]
       ? probabilityToTokenPrice(optionData[4] as bigint)
       : 0n;
@@ -365,7 +376,7 @@ export function MarketV2SellInterface({
   const optionsWithShares = market.options
     .map((option, index) => {
       const tokenPrice = tokenPrices
-        ? (tokenPrices as readonly bigint[])[index]
+        ? tokenPrices[index] ?? 0n
         : probabilityToTokenPrice(option.currentPrice);
 
       return {

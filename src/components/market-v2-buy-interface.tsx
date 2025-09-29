@@ -298,16 +298,6 @@ export function MarketV2BuyInterface({
   });
 
   // Fetch token prices directly from PolicastViews (ready for display)
-  const { data: tokenPrices, refetch: refetchTokenPrices } = useReadContract({
-    address: PolicastViews,
-    abi: PolicastViewsAbi,
-    functionName: "getMarketPricesInTokens",
-    args: [BigInt(marketId)],
-    query: {
-      refetchInterval: 2000, // Refresh every 2 seconds
-    },
-  });
-
   // Fetch current prices for selected option with fresher data
   const { data: optionData, refetch: refetchOptionData } = useReadContract({
     address: V2contractAddress,
@@ -320,17 +310,28 @@ export function MarketV2BuyInterface({
     },
   });
 
+  const optionTuple = optionData as
+    | [string, string, bigint, bigint, bigint, boolean]
+    | undefined;
+  const currentOptionPrice = optionTuple ? optionTuple[4] : 0n;
+  const optionIsActive = optionTuple ? optionTuple[5] : false;
+
   // Add: on-chain quote for accurate LMSR cost
   const sharesInWei = useMemo(() => sharesToWei(amount), [amount]);
+
+  const quoteBuyArgs = useMemo(
+    () =>
+      selectedOptionId !== null
+        ? ([BigInt(marketId), BigInt(selectedOptionId), sharesInWei] as const)
+        : undefined,
+    [marketId, selectedOptionId, sharesInWei]
+  );
 
   const { data: buyQuote } = useReadContract({
     address: PolicastViews,
     abi: PolicastViewsAbi,
     functionName: "quoteBuy",
-    args:
-      selectedOptionId === null
-        ? undefined
-        : [BigInt(marketId), BigInt(selectedOptionId), sharesInWei],
+    args: quoteBuyArgs,
     query: {
       enabled: selectedOptionId !== null && sharesInWei > 0n,
       refetchInterval: 2000,
@@ -393,7 +394,7 @@ export function MarketV2BuyInterface({
       const requiredBalance = estimatedCost; // from on-chain quote
       const avgPricePerShare = buyQuote
         ? ((buyQuote as any)[3] as bigint) // avg price per share incl. fee (1e18-scaled)
-        : optionData?.[4] || 0n;
+        : currentOptionPrice;
       const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
       // 2% buffer for total bound to reduce revert from minor moves
       const maxTotalCost = requiredBalance
@@ -527,7 +528,7 @@ export function MarketV2BuyInterface({
       const requiredBalance = estimatedCost; // from on-chain quote
       const avgPricePerShare = buyQuote
         ? ((buyQuote as any)[3] as bigint) // avg price per share incl. fee (1e18-scaled)
-        : optionData?.[4] || 0n;
+        : currentOptionPrice;
       const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
       // 2% buffer for total bound to reduce revert from minor moves
       const maxTotalCost = requiredBalance
@@ -557,7 +558,7 @@ export function MarketV2BuyInterface({
         // Direct purchase using estimated cost
         const avgPricePerShare = estimatedCost
           ? (estimatedCost * BigInt(1e18)) / amountInUnits
-          : optionData?.[4] || 0n;
+          : currentOptionPrice;
         const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
 
         console.log("Making direct purchase...");
@@ -656,15 +657,12 @@ export function MarketV2BuyInterface({
 
       // Use estimated cost for balance check, fallback to approximate calculation if not available
       const requiredBalance = estimatedCost; // from on-chain quote
-      const currentPrice = optionData?.[4] || 0n;
-      // Get token price directly from PolicastViews (if available)
-      const tokenPriceFromContract =
-        tokenPrices?.[selectedOptionId || 0] || currentPrice;
+      const currentPrice = currentOptionPrice;
 
       // Calculate max price per share from estimated cost with slippage tolerance
       const avgPricePerShare = estimatedCost
         ? (estimatedCost * BigInt(1e18)) / amountInUnits
-        : tokenPriceFromContract;
+        : currentPrice;
       const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
 
       console.log("=== V2 BATCH TRANSACTION DEBUG ===");
@@ -850,13 +848,13 @@ export function MarketV2BuyInterface({
     }
 
     // Check if market and option data is available
-    if (!optionData || !marketInfo) {
+    if (!optionTuple || !marketInfo) {
       setError("Market or option data not available. Please try again.");
       return;
     }
 
     // Check if option is active (index 5 in the optionData array should be boolean)
-    if (optionData.length > 5 && !optionData[5]) {
+    if (!optionIsActive) {
       setError(
         "Selected option is not active. Please choose a different option."
       );
@@ -1175,7 +1173,7 @@ export function MarketV2BuyInterface({
         const amountInUnits = toUnits(amount, tokenDecimals || 18);
         const avgPricePerShare = estimatedCost
           ? (estimatedCost * BigInt(1e18)) / amountInUnits
-          : optionData?.[4] || 0n;
+          : currentOptionPrice;
         const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
 
         writeContractAsync({
@@ -1202,10 +1200,6 @@ export function MarketV2BuyInterface({
         setAmount("");
         setIsBuying(false);
         refetchOptionData();
-        // Refresh token prices so UI reflects updated on-chain prices
-        if (typeof refetchTokenPrices === "function") {
-          refetchTokenPrices();
-        }
       }
     }
   }, [
@@ -1224,7 +1218,6 @@ export function MarketV2BuyInterface({
     market.options,
     toast,
     refetchOptionData,
-    refetchTokenPrices,
   ]);
 
   // Update container height
@@ -1314,14 +1307,13 @@ export function MarketV2BuyInterface({
 
             <div className="grid gap-1">
               {market.options.map((option, index) => {
-                // Use token price from PolicastViews if available, fallback to option.currentPrice
-                const tokenPrice = tokenPrices?.[index] || option.currentPrice;
+                const tokenPrice = option.currentPrice;
                 const probability =
                   calculateProbabilityFromTokenPrice(tokenPrice);
                 const oddsFormatted =
                   odds.length > 0
-                    ? Number(odds[index] || 0n) / 1e18 / 100
-                    : calculateOddsFromTokenPrice(tokenPrice) / 100;
+                    ? Number(odds[index] || 0n) / 1e18
+                    : calculateOddsFromTokenPrice(tokenPrice);
                 const isSelected = selectedOptionId === index;
 
                 return (
@@ -1349,7 +1341,7 @@ export function MarketV2BuyInterface({
                         <p className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
                           {option.name}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {/* <p className="text-xs text-gray-500 dark:text-gray-400">
                           {probability.toFixed(1)}% •{" "}
                           {odds.length > 0
                             ? (Number(odds[index] || 0n) / 1e18 / 100).toFixed(
@@ -1359,13 +1351,13 @@ export function MarketV2BuyInterface({
                                 calculateOddsFromTokenPrice(tokenPrice) / 100
                               ).toFixed(2)}
                           x odds
-                        </p>
+                        </p> */}
                       </div>
-                      <div className="text-right flex-shrink-0">
+                      {/* <div className="text-right flex-shrink-0">
                         <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                           {probability.toFixed(1)}buster
                         </p>
-                      </div>
+                      </div> */}
                     </div>
                   </button>
                 );

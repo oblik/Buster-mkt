@@ -1,82 +1,168 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
-import { V2contractAddress, V2contractAbi } from "@/constants/contract";
+import {
+  V2contractAddress,
+  V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
+} from "@/constants/contract";
+
+const alchemyRpc = process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL;
+if (!alchemyRpc && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "Missing NEXT_PUBLIC_ALCHEMY_RPC_URL (required in production). Please set it in your environment."
+  );
+}
 
 const publicClient = createPublicClient({
   chain: base,
-  transport: http(
-    process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL || "https://mainnet.base.org"
-  ),
+  transport: http(alchemyRpc || "https://mainnet.base.org"),
 });
-//
+
+// Typed wrappers to reduce any-casts
+async function readCore<TReturn>(
+  functionName: string,
+  args: readonly any[] = []
+): Promise<TReturn> {
+  return (await publicClient.readContract({
+    address: V2contractAddress,
+    abi: V2contractAbi as any,
+    functionName: functionName as any,
+    args: args as any,
+  })) as unknown as TReturn;
+}
+
+async function readView<TReturn>(
+  functionName: string,
+  args: readonly any[] = []
+): Promise<TReturn> {
+  return (await publicClient.readContract({
+    address: PolicastViews,
+    abi: PolicastViewsAbi as any,
+    functionName: functionName as any,
+    args: args as any,
+  })) as unknown as TReturn;
+}
+
 interface UserWinnings {
   marketId: number;
-  amount: bigint; // raw token amount (1e18 scaled)
-  hasWinnings: boolean; // true if claimable now
+  amount: bigint;
+  hasWinnings: boolean;
 }
-
-interface MarketBasicInfo {
-  resolved: boolean;
-  invalidated: boolean;
-  optionCount: number;
-}
-
-// Helper: safe bigint parse
-const toBigInt = (v: any, def: bigint = 0n) => {
-  try {
-    if (typeof v === "bigint") return v;
-    if (typeof v === "number") return BigInt(v);
-    if (typeof v === "string" && v !== "") return BigInt(v);
-    return def;
-  } catch {
-    return def;
-  }
-};
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { userAddress } = body;
 
-    if (!userAddress) {
+    if (!userAddress || typeof userAddress !== "string") {
       return NextResponse.json(
         { error: "User address is required" },
         { status: 400 }
       );
     }
 
-    console.log("[winnings-api] Auto-discover start", { userAddress });
+    console.log("Auto-discovering markets for user:", userAddress);
 
-    // Step 1: Discover markets via trade history
-    let participatedMarkets = await discoverUserMarketsFromTrades(userAddress);
-    console.log("[winnings-api] markets from trades", participatedMarkets);
+    // Step 1: Discover markets where user participated
+    const participatedMarkets = await discoverUserMarkets(userAddress);
 
-    // Step 2: Fallback scan (resolved markets only) if none found
-    if (participatedMarkets.length === 0) {
-      console.log("[winnings-api] No markets via trades -> fallback scan");
-      participatedMarkets = await fallbackScanParticipation(userAddress);
-      console.log("[winnings-api] fallback markets", participatedMarkets);
-    }
-
-    // Deduplicate & sort
-    participatedMarkets = Array.from(new Set(participatedMarkets)).sort(
-      (a, b) => a - b
-    );
-
-    // Step 3: Compute claimable winnings (on-chain; no stub reliance)
-    const winningsData = await computeClaimableWinnings(
-      userAddress,
+    console.log(
+      `Found ${participatedMarkets.length} markets user participated in:`,
       participatedMarkets
     );
 
-    console.log("[winnings-api] claimable markets count", winningsData.length);
+    // Step 2: Check winnings eligibility for each market (use Views.getUserWinnings)
+    const winningsData: UserWinnings[] = [];
+
+    // Process sequentially to avoid RPC rate limits (markets count is usually small)
+    for (const marketId of participatedMarkets) {
+      try {
+        // Prefer Views.getUserWinnings(address,uint256)
+        const abiHasFn =
+          Array.isArray(PolicastViewsAbi) &&
+          PolicastViewsAbi.some(
+            (f: any) => f.type === "function" && f.name === "getUserWinnings"
+          );
+
+        if (!abiHasFn) {
+          // Fallback: try core contract if view missing (older deployments)
+          try {
+            const result = (await readCore<readonly any[]>("getUserWinnings", [
+              BigInt(marketId),
+              userAddress as `0x${string}`,
+            ])) as unknown;
+            const r = result as readonly any[];
+            const hasWinnings = Boolean(r[0]);
+            const amount = BigInt(r[1] ?? 0n);
+            if (hasWinnings && amount > 0n) {
+              winningsData.push({ marketId, amount, hasWinnings: true });
+            }
+            continue;
+          } catch (err) {
+            console.debug(
+              `Fallback core.getUserWinnings failed for market ${marketId}:`,
+              err
+            );
+          }
+        }
+
+        // Call Views.getUserWinnings(address,uint256)
+        const raw = (await readView<unknown>("getUserWinnings", [
+          userAddress as `0x${string}`,
+          BigInt(marketId),
+        ])) as unknown;
+
+        // Normalize raw to BigInt safely
+        let amount = 0n;
+        if (typeof raw === "bigint") {
+          amount = raw;
+        } else if (typeof raw === "number") {
+          amount = BigInt(Math.trunc(raw));
+        } else if (typeof raw === "string") {
+          try {
+            amount = BigInt(raw);
+          } catch {
+            amount = 0n;
+          }
+        } else if (raw && typeof (raw as any).toString === "function") {
+          const s = (raw as any).toString();
+          if (/^\d+$/.test(s)) {
+            try {
+              amount = BigInt(s);
+            } catch {
+              amount = 0n;
+            }
+          }
+        }
+
+        if (amount > 0n) {
+          winningsData.push({ marketId, amount, hasWinnings: true });
+        }
+      } catch (error) {
+        console.error(`Error checking winnings for market ${marketId}:`, error);
+        // continue with other markets
+      }
+
+      // small delay to reduce bursty RPC calls
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    console.log(`Found ${winningsData.length} markets with claimable winnings`);
+
+    // Serialize BigInt amounts to strings for JSON
+    const winningsDataSerialized = winningsData.map((w) => ({
+      marketId: w.marketId,
+      amount: w.amount.toString(),
+      hasWinnings: w.hasWinnings,
+    }));
 
     return NextResponse.json({
       participatedMarkets,
-      winningsData,
+      winningsData: winningsDataSerialized,
       totalMarkets: participatedMarkets.length,
-      claimableMarkets: winningsData.length,
+      claimableMarkets: winningsDataSerialized.length,
     });
   } catch (error) {
     console.error("Auto-discover user markets error:", error);
@@ -89,108 +175,124 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Step 1: Discover markets from trade history directly
-async function discoverUserMarketsFromTrades(
-  userAddress: string
-): Promise<number[]> {
-  const tradeHistory = await readUserTradeHistory(userAddress);
-  if (!tradeHistory.length) return [];
-  const markets = new Set<number>();
-  for (const trade of tradeHistory) {
-    // Support both tuple and object
-    const marketIdRaw = (trade && (trade.marketId ?? trade[0])) as any;
-    const mId = Number(marketIdRaw);
-    if (!Number.isNaN(mId)) markets.add(mId);
-  }
-  return Array.from(markets).sort((a, b) => a - b);
-}
+// Discover all markets where user participated
+async function discoverUserMarkets(userAddress: string): Promise<number[]> {
+  const participatedMarkets: Set<number> = new Set();
 
-// Fallback: scan resolved markets to detect participation via winning option shares OR any option shares
-async function fallbackScanParticipation(
-  userAddress: string
-): Promise<number[]> {
-  const markets: number[] = [];
+  // Method 1: Prefer Views.getUserMarkets(user) if available (efficient)
   try {
-    const mCount = Number(
-      await (publicClient.readContract as any)({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "marketCount",
-      })
-    );
-    if (mCount === 0) return markets;
+    const abiHasFn =
+      Array.isArray(PolicastViewsAbi) &&
+      PolicastViewsAbi.some(
+        (f: any) => f.type === "function" && f.name === "getUserMarkets"
+      );
 
-    const PAYOUT = await (publicClient.readContract as any)({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "PAYOUT_PER_SHARE",
-    });
-    void PAYOUT; // not needed for participation detection
-
-    const maxScan = Math.min(mCount, 300); // safety cap
-    for (let marketId = 0; marketId < maxScan; marketId++) {
-      try {
-        const basic: any = await (publicClient.readContract as any)({
-          address: V2contractAddress,
-          abi: V2contractAbi,
-          functionName: "getMarketBasicInfo",
-          args: [BigInt(marketId)],
-        });
-        // basic tuple indices: 0 question,1 desc,2 endTime,3 category,4 optionCount,5 resolved,6 marketType,7 invalidated,8 totalVolume
-        const optionCount = Number(basic[4] ?? 0);
-        let participated = false;
-        for (let option = 0; option < optionCount; option++) {
-          const shares = await (publicClient.readContract as any)({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "getMarketOptionUserShares",
-            args: [
-              BigInt(marketId),
-              BigInt(option),
-              userAddress as `0x${string}`,
-            ],
-          });
-          if (toBigInt(shares) > 0n) {
-            participated = true;
-            break;
+    if (abiHasFn) {
+      console.log("Using PolicastViews.getUserMarkets");
+      const markets = (await readView<bigint[]>("getUserMarkets", [
+        userAddress as `0x${string}`,
+      ])) as unknown;
+      if (Array.isArray(markets) && markets.length > 0) {
+        markets.forEach((m) => {
+          try {
+            participatedMarkets.add(Number(m));
+          } catch {
+            // ignore
           }
-        }
-        if (participated) markets.push(marketId);
-      } catch (err) {
-        // ignore individual market errors
+        });
+        console.log(
+          `Extracted ${participatedMarkets.size} unique markets from getUserMarkets`
+        );
+        return Array.from(participatedMarkets).sort((a, b) => a - b);
       }
+    } else {
+      console.log("PolicastViews.getUserMarkets not available, falling back");
     }
-  } catch (e) {
-    console.warn("[winnings-api] fallback scan failed", e);
+  } catch (error) {
+    console.warn("Method 1 (getUserMarkets) failed, falling back:", error);
   }
-  return markets;
+
+  // Method 2: Try reading userTradeHistory on core contract if exists
+  try {
+    console.log("Trying Method 2: core.userTradeHistory");
+    const trades = await readUserTradeHistory(userAddress);
+    if (trades && trades.length > 0) {
+      trades.forEach((trade: any) => {
+        if (trade && typeof trade.marketId !== "undefined") {
+          participatedMarkets.add(Number(trade.marketId));
+        }
+      });
+      console.log(
+        `Extracted ${participatedMarkets.size} unique markets from trade history`
+      );
+      return Array.from(participatedMarkets).sort((a, b) => a - b);
+    }
+  } catch (error) {
+    console.warn("Method 2 failed, falling back to Method 3:", error);
+  }
+
+  // Method 3: Batch check markets using Views.getUserShares
+  console.log("Using Method 3: Batch market checking (getUserShares)");
+  const batchSize = 5; // reduced to lower RPC pressure
+  const maxMarketId = 200; // configurable upper bound
+
+  const batches: Array<Promise<number[]>> = [];
+  for (let startId = 0; startId < maxMarketId; startId += batchSize) {
+    const endId = Math.min(startId + batchSize, maxMarketId);
+    batches.push(checkMarketBatch(userAddress, startId, endId));
+    // small delay between dispatching batches
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  // Process batches sequentially to reduce chance of 429s
+  for (const p of batches) {
+    try {
+      const batchMarkets = await p;
+      batchMarkets.forEach((m) => participatedMarkets.add(m));
+    } catch (error) {
+      console.error("Batch check failed:", error);
+    }
+    // delay between batches
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  console.log(`Found ${participatedMarkets.size} markets via batch checking`);
+  return Array.from(participatedMarkets).sort((a, b) => a - b);
 }
 
-// Try to read user's trade history directly from contract
+// Try to read user's trade history directly from core contract (if available)
 async function readUserTradeHistory(userAddress: string): Promise<any[]> {
   try {
+    // Some deployments don't expose userTradeHistory; guard the call
+    const abiHasFn =
+      Array.isArray(V2contractAbi) &&
+      V2contractAbi.some(
+        (f: any) => f.type === "function" && f.name === "userTradeHistory"
+      );
+
+    if (!abiHasFn) {
+      console.log("Core contract does not expose userTradeHistory");
+      return [];
+    }
+
     const trades: any[] = [];
     let index = 0;
     const maxAttempts = 100; // Prevent infinite loops
 
     while (index < maxAttempts) {
       try {
-        const trade = (await (publicClient.readContract as any)({
-          address: V2contractAddress,
-          abi: V2contractAbi,
-          functionName: "userTradeHistory",
-          args: [userAddress as `0x${string}`, BigInt(index)],
-        })) as unknown;
+        const trade = (await readCore<unknown>("userTradeHistory", [
+          userAddress as `0x${string}`,
+          BigInt(index),
+        ])) as unknown;
 
         if (trade) {
           trades.push(trade);
           index++;
         } else {
-          // No more trades
           break;
         }
       } catch (error) {
-        // If we get a contract revert, it likely means we've reached the end
         console.log(`Reached end of trade history at index ${index}`);
         break;
       }
@@ -202,96 +304,54 @@ async function readUserTradeHistory(userAddress: string): Promise<any[]> {
     return trades;
   } catch (error) {
     console.error("Failed to read user trade history:", error);
-    throw error;
+    return [];
   }
 }
 
-// Compute claimable winnings for markets
-async function computeClaimableWinnings(
+// Check a batch of markets for user participation using Views.getUserShares
+async function checkMarketBatch(
   userAddress: string,
-  markets: number[]
-): Promise<UserWinnings[]> {
-  if (!markets.length) return [];
-  const results: UserWinnings[] = [];
+  startId: number,
+  endId: number
+): Promise<number[]> {
+  const participatedMarkets: number[] = [];
 
-  // Read payout constant once
-  let payoutPerShare: bigint = 100n * 10n ** 18n;
-  try {
-    payoutPerShare = await (publicClient.readContract as any)({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "PAYOUT_PER_SHARE",
-    });
-  } catch {
-    /* fallback to constant */
-  }
-
-  for (const marketId of markets) {
+  for (let marketId = startId; marketId < endId; marketId++) {
     try {
-      const basic: any = await (publicClient.readContract as any)({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketBasicInfo",
-        args: [BigInt(marketId)],
-      });
-      const resolved = Boolean(basic[5]);
-      const invalidated = Boolean(basic[7]);
-      if (!resolved || invalidated) continue;
+      // Use Views.getUserShares(marketId, user)
+      const sharesRaw = (await readView<readonly bigint[]>("getUserShares", [
+        BigInt(marketId),
+        userAddress as `0x${string}`,
+      ])) as unknown;
 
-      const extended: any = await (publicClient.readContract as any)({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketExtendedMeta",
-        args: [BigInt(marketId)],
-      });
-      const winningOptionId = toBigInt(extended[0]);
-      const disputed = Boolean(extended[1]);
-      if (disputed) continue;
-
-      const userShares = await (publicClient.readContract as any)({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketOptionUserShares",
-        args: [BigInt(marketId), winningOptionId, userAddress as `0x${string}`],
-      });
-      const sharesBI = toBigInt(userShares);
-      if (sharesBI === 0n) continue;
-
-      // Simulate claim to ensure not already claimed / still claimable
-      let claimable = false;
-      try {
-        await publicClient.simulateContract({
-          address: V2contractAddress,
-          abi: V2contractAbi,
-          functionName: "claimWinnings",
-          args: [BigInt(marketId)],
-          account: userAddress as `0x${string}`,
-        });
-        claimable = true; // simulation succeeded
-      } catch (simError: any) {
-        // If revert indicates AlreadyClaimed or NoWinningShares treat as not claimable
-        const msg = (
-          simError?.shortMessage ||
-          simError?.message ||
-          ""
-        ).toLowerCase();
-        if (msg.includes("alreadyclaimed") || msg.includes("nowinningshares")) {
-          claimable = false;
-        } else {
-          // Other errors (e.g., MarketNotReady) also render not claimable
-          claimable = false;
-        }
+      if (!sharesRaw) {
+        continue;
       }
-      if (!claimable) continue;
 
-      const amount = (sharesBI * payoutPerShare) / 10n ** 18n; // shares (1e18) * payout (1e18) / 1e18
-      if (amount > 0n) {
-        results.push({ marketId, amount, hasWinnings: true });
+      const sharesArr =
+        Array.isArray(sharesRaw) && (sharesRaw as readonly any[]).length > 0
+          ? (sharesRaw as readonly any[]).map((s) => {
+              try {
+                return BigInt(s ?? 0n);
+              } catch {
+                return 0n;
+              }
+            })
+          : [];
+
+      const hasParticipation = sharesArr.some((share) => share > 0n);
+
+      if (hasParticipation) {
+        participatedMarkets.push(marketId);
       }
-    } catch (err) {
-      // Skip problematic market
-      console.debug(`[winnings-api] market ${marketId} processing error`, err);
+    } catch (error) {
+      // market might not exist or call failed; continue
+      console.debug(`Market ${marketId} check failed:`, error);
     }
+
+    // slight delay per market to avoid bursts
+    await new Promise((resolve) => setTimeout(resolve, 15));
   }
-  return results;
+
+  return participatedMarkets;
 }

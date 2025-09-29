@@ -2,12 +2,11 @@
 
 import { MarketOption } from "@/types/types";
 import { cn } from "@/lib/utils";
-import { useReadContract } from "wagmi";
-import { PolicastViews, PolicastViewsAbi } from "@/constants/contract";
 
 interface MultiOptionProgressProps {
   marketId: number;
   options: MarketOption[];
+  probabilities: number[]; // New prop
   totalVolume: bigint;
   className?: string;
 }
@@ -18,27 +17,6 @@ function formatPrice(price: bigint): string {
   if (formatted < 0.01) return formatted.toFixed(4);
   if (formatted < 1) return formatted.toFixed(3);
   return formatted.toFixed(2);
-}
-
-// Helper function to format odds coming from contract. We no longer display the raw
-// on-chain odds value directly (some deployments encode an extra *100 factor); instead
-// we derive display odds from the normalized probability for consistent UX.
-// (Kept here in case of future debugging needs.)
-function formatRawOdds(odds: bigint): number {
-  return Number(odds) / 1e18;
-}
-
-// Helper function to calculate probability from odds (probability = 1/odds * 100)
-function calculateProbabilityFromOdds(odds: bigint): number {
-  const oddsNumber = Number(odds) / 1e18;
-  if (oddsNumber <= 0) return 0;
-  return Math.max(0, Math.min(100, (1 / oddsNumber) * 100));
-}
-
-// Fallback: Helper function to calculate percentage from current price (for backwards compatibility)
-function calculateProbabilityFromPrice(price: bigint): number {
-  const priceAsNumber = Number(price) / 1e18;
-  return Math.max(0, Math.min(100, priceAsNumber * 100));
 }
 
 // Color palette for options (up to 10 options)
@@ -58,36 +36,11 @@ const optionColors = [
 export function MultiOptionProgress({
   marketId,
   options,
+  probabilities, // Use this instead
   totalVolume,
   className,
 }: MultiOptionProgressProps) {
-  // Get market odds directly from contract
-  const { data: marketOdds } = useReadContract({
-    address: PolicastViews,
-    abi: PolicastViewsAbi,
-    functionName: "getMarketOdds",
-    args: [BigInt(marketId)],
-  });
-
-  // Convert contract odds to array of bigints
-  const odds = (marketOdds as readonly bigint[]) || [];
-
-  // Debug logging
-  console.log(`📊 Market ${marketId} odds from contract:`, {
-    marketOdds,
-    odds: odds.map((odd) => `${Number(odd) / 1e18}x`),
-    optionCount: options.length,
-  });
-
-  // Calculate probabilities from contract odds, fallback to price-based calculation
-  const probabilities =
-    odds.length > 0
-      ? odds.map((odd) => calculateProbabilityFromOdds(odd))
-      : options.map((option) =>
-          calculateProbabilityFromPrice(option.currentPrice)
-        );
-
-  // Normalize probabilities if they don't sum to 100%
+  // Normalize probabilities (already calculated upstream)
   const totalProbability = probabilities.reduce((sum, prob) => sum + prob, 0);
   const normalizationFactor = totalProbability > 0 ? 100 / totalProbability : 0;
 
@@ -120,13 +73,8 @@ export function MultiOptionProgress({
         {options.map((option, index) => {
           const probability = probabilities[index] || 0;
           const normalizedProbability = probability * normalizationFactor;
-          const optionOdds = odds[index] || 0n;
-          const priceFormatted = formatPrice(option.currentPrice * 100n);
-          const volumeFormatted = formatPrice(option.totalVolume);
-          // Derive display odds from normalized probability to avoid inflated raw odds (e.g. 100x instead of 1x)
           const displayOdds =
             normalizedProbability > 0 ? 100 / normalizedProbability : 0;
-          const rawOdds = formatRawOdds(optionOdds); // for potential future comparison/debug
 
           return (
             <div
@@ -155,14 +103,15 @@ export function MultiOptionProgress({
               <div className="text-right">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-bold text-gray-900">
-                    {normalizedProbability.toFixed(1)}%
+                    {normalizedProbability.toFixed(1)}Buster
                   </span>
                   <span className="text-xs text-gray-500">
                     {displayOdds.toFixed(2)}x
                   </span>
                 </div>
                 <div className="text-xs text-gray-400">
-                  {priceFormatted} Buster • Vol: {volumeFormatted}
+                  {formatPrice(option.currentPrice * 100n)} Buster • Vol:{" "}
+                  {formatPrice(option.totalVolume)}
                 </div>
               </div>
             </div>

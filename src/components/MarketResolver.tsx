@@ -102,55 +102,110 @@ export function MarketResolver() {
       // Fetch markets in batches to avoid RPC limits
       for (let i = 0; i < count; i++) {
         try {
-          const marketInfo = await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketInfo",
-            args: [BigInt(i)],
-          });
+          const [
+            marketInfo,
+            marketStatusEnum,
+            earlyResolutionAllowedRaw,
+            optionCountRaw,
+            totalVolumeRaw,
+            winningOptionRaw,
+          ] = await Promise.all([
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketInfo",
+              args: [BigInt(i)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketStatus",
+              args: [BigInt(i)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketEarlyResolutionAllowed",
+              args: [BigInt(i)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketOptionCount",
+              args: [BigInt(i)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketTotalVolume",
+              args: [BigInt(i)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketResolvedOutcome",
+              args: [BigInt(i)],
+            }),
+          ]);
 
-          const marketStatus = await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketStatus",
-            args: [BigInt(i)],
-          });
+          const question = marketInfo[0] as string;
+          const description = marketInfo[1] as string;
+          const endTime = Number(marketInfo[2]);
+          const category = Number(marketInfo[3]);
+          const marketType = Number(marketInfo[4]);
+          const resolved = Boolean(marketInfo[5]);
+          const invalidated = Boolean(marketInfo[6]);
+          const creator = marketInfo[7] as string;
 
-          const earlyResolutionAllowed = await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketEarlyResolutionAllowed",
-            args: [BigInt(i)],
-          });
+          const optionCount = Number(optionCountRaw);
+          const totalVolume = Number(totalVolumeRaw);
+          const winningOptionId = BigInt(winningOptionRaw);
+          const nowTs = Math.floor(Date.now() / 1000);
+          const timeRemaining = Math.max(0, endTime - nowTs);
+          const isExpired = timeRemaining === 0;
+          const statusEnum = Number(marketStatusEnum);
+          const earlyResolutionAllowed = Boolean(earlyResolutionAllowedRaw);
 
-          // Convert BigInt values to numbers/strings for JSON serialization
+          const isActive = statusEnum === 0 && !invalidated;
+          const isResolvedStatus = statusEnum === 1 || resolved;
+          const isDisputed = statusEnum === 3;
+          const canTrade = isActive && !isExpired;
+          const canResolve =
+            !resolved &&
+            !invalidated &&
+            (timeRemaining === 0 ||
+              (earlyResolutionAllowed && timeRemaining >= 3600 && !isDisputed));
+
           const serializedMarketInfo = [
-            marketInfo[0], // title (string)
-            marketInfo[1], // description (string)
-            Number(marketInfo[2]), // endTime (convert BigInt to number)
-            Number(marketInfo[3]), // category (convert BigInt to number)
-            Number(marketInfo[4]), // optionCount (convert BigInt to number)
-            marketInfo[5], // resolved (boolean)
-            marketInfo[6], // resolvedOutcome (boolean)
-            Number(marketInfo[7]), // marketType (convert BigInt to number)
-            marketInfo[8], // invalidated (boolean)
-            Number(marketInfo[9]), // totalVolume (convert BigInt to number)
+            question,
+            description,
+            endTime,
+            category,
+            optionCount,
+            resolved,
+            resolved,
+            marketType,
+            invalidated,
+            totalVolume,
           ];
 
           const serializedMarketStatus = [
-            marketStatus[0], // isActive (boolean)
-            marketStatus[1], // isResolved (boolean)
-            marketStatus[2], // isExpired (boolean)
-            marketStatus[3], // canTrade (boolean)
-            marketStatus[4], // canResolve (boolean)
-            Number(marketStatus[5]), // timeRemaining (convert BigInt to number)
+            isActive,
+            isResolvedStatus,
+            isExpired,
+            canTrade,
+            canResolve,
+            timeRemaining,
           ];
 
           markets.push({
             id: i,
             marketInfo: serializedMarketInfo,
             marketStatus: serializedMarketStatus,
-            earlyResolutionAllowed: Boolean(earlyResolutionAllowed),
+            earlyResolutionAllowed,
+            creator,
+            disputed: isDisputed,
+            winningOptionId,
           });
         } catch (error) {
           console.error(`Error fetching market ${i}:`, error);
@@ -183,7 +238,14 @@ export function MarketResolver() {
       try {
         const now = Math.floor(Date.now() / 1000);
         const mapped: MarketInfo[] = items.map((item) => {
-          const { marketInfo, marketStatus, earlyResolutionAllowed } = item;
+          const {
+            marketInfo,
+            marketStatus,
+            earlyResolutionAllowed,
+            creator,
+            disputed,
+            winningOptionId,
+          } = item;
           const [
             title,
             description,
@@ -210,13 +272,13 @@ export function MarketResolver() {
             marketId: item.id,
             question: title,
             description: description || "",
-            endTime: BigInt(endTime), // endTime is already a number
-            category: category, // category is already a number
-            optionCount: BigInt(optionCount), // optionCount is already a number
+            endTime: BigInt(endTime),
+            category: category,
+            optionCount: BigInt(optionCount),
             resolved: Boolean(resolved),
-            disputed: false, // Not available in basic info
-            winningOptionId: 0n, // Would need additional call to get this
-            creator: "", // Would need additional call to get this
+            disputed: Boolean(disputed),
+            winningOptionId: winningOptionId ?? 0n,
+            creator: creator || "",
             options: [], // Would need additional calls to get option names
             totalShares: Array(optionCount).fill(0n), // optionCount is already a number
             canResolve: Boolean(canResolve),
@@ -244,30 +306,47 @@ export function MarketResolver() {
         if (!selectedMarket) return null;
 
         try {
-          const marketInfo = await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketInfo",
-            args: [BigInt(selectedMarket.marketId)],
-          });
+          const [
+            marketInfo,
+            optionCountRaw,
+            totalVolumeRaw,
+            winningOptionRaw,
+            earlyResolution,
+          ] = await Promise.all([
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketInfo",
+              args: [BigInt(selectedMarket.marketId)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketOptionCount",
+              args: [BigInt(selectedMarket.marketId)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketTotalVolume",
+              args: [BigInt(selectedMarket.marketId)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketResolvedOutcome",
+              args: [BigInt(selectedMarket.marketId)],
+            }),
+            publicClient.readContract({
+              address: PolicastViews,
+              abi: PolicastViewsAbi,
+              functionName: "getMarketEarlyResolutionAllowed",
+              args: [BigInt(selectedMarket.marketId)],
+            }),
+          ]);
 
-          const creator = await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketCreator",
-            args: [BigInt(selectedMarket.marketId)],
-          });
-
-          const earlyResolution = await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketEarlyResolutionAllowed",
-            args: [BigInt(selectedMarket.marketId)],
-          });
-
-          // Get option names
-          const optionCount = Number(marketInfo[4]);
-          const options = [];
+          const optionCount = Number(optionCountRaw);
+          const options = [] as string[];
           for (let i = 0; i < optionCount; i++) {
             const optionData = await publicClient.readContract({
               address: PolicastViews,
@@ -275,28 +354,28 @@ export function MarketResolver() {
               functionName: "getMarketOption",
               args: [BigInt(selectedMarket.marketId), BigInt(i)],
             });
-            options.push(optionData[0]); // option name
+            options.push(optionData[0]);
           }
 
-          // Convert BigInt values to serializable format
           const serializedMarketInfo = [
-            marketInfo[0], // title (string)
-            marketInfo[1], // description (string)
-            Number(marketInfo[2]), // endTime
-            Number(marketInfo[3]), // category
-            Number(marketInfo[4]), // optionCount
-            marketInfo[5], // resolved (boolean)
-            marketInfo[6], // resolvedOutcome (boolean)
-            Number(marketInfo[7]), // marketType
-            marketInfo[8], // invalidated (boolean)
-            Number(marketInfo[9]), // totalVolume
+            marketInfo[0],
+            marketInfo[1],
+            Number(marketInfo[2]),
+            Number(marketInfo[3]),
+            optionCount,
+            marketInfo[5],
+            marketInfo[5],
+            Number(marketInfo[4]),
+            marketInfo[6],
+            Number(totalVolumeRaw),
           ];
 
           return {
             marketInfo: serializedMarketInfo,
-            creator: creator as string,
+            creator: (marketInfo[7] as string) || "",
             earlyResolution: Boolean(earlyResolution),
-            options: options as string[],
+            options,
+            winningOptionId: BigInt(winningOptionRaw),
           };
         } catch (error) {
           console.error("Error fetching selected market:", error);
@@ -311,7 +390,7 @@ export function MarketResolver() {
     // merge details from the contract calls
     setSelectedMarket((prev) => {
       if (!prev) return prev;
-      const { marketInfo, creator, earlyResolution, options } =
+      const { marketInfo, creator, earlyResolution, options, winningOptionId } =
         selectedMarketEntity;
       const resolved = Boolean(marketInfo[5]);
 
@@ -322,6 +401,10 @@ export function MarketResolver() {
         resolved,
         totalShares: Array(options?.length || 0).fill(0n),
         earlyResolutionAllowed: Boolean(earlyResolution),
+        winningOptionId:
+          typeof winningOptionId === "bigint"
+            ? winningOptionId
+            : prev.winningOptionId,
       };
     });
   }, [selectedMarketEntity]);
