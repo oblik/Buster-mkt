@@ -131,6 +131,10 @@ export function MarketV2BuyInterface({
     abi: PolicastViewsAbi,
     functionName: "getMarketOdds",
     args: [BigInt(marketId)],
+    query: {
+      // keep odds fresh after trades — poll every 2s so UI updates shortly after market-updated
+      refetchInterval: 2000,
+    },
   });
 
   // Convert contract odds to array of bigints
