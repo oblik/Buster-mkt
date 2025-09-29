@@ -128,7 +128,7 @@ const FreeMarketBadge = () => {
   return (
     <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 border border-green-200 shadow-sm">
       <Gift className="h-3 w-3" />
-      Free Entry
+      Free
     </span>
   );
 };
@@ -159,6 +159,43 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   const [commentCount, setCommentCount] = useState<number>(0);
   const [options, setOptions] = useState<MarketOption[]>([]);
   const [totalVolume, setTotalVolume] = useState<bigint>(0n);
+  // Derived displayOptions: prefer detailed `options` (from /api) but fall back
+  // to a lightweight representation built from the passed-in `market` so the
+  // progress UI and other consumers can render immediately.
+  const displayOptions: MarketOption[] = (() => {
+    if (options && options.length > 0) return options;
+    const count =
+      Number(market.optionCount ?? market.options?.length ?? 0) || 0;
+    if (count <= 0) return [];
+    return Array.from({ length: count }).map((_, i) => {
+      const raw = market.options ? market.options[i] : undefined;
+      const name =
+        typeof raw === "string"
+          ? raw
+          : raw && typeof raw === "object"
+          ? String((raw as any).name ?? `Option ${i + 1}`)
+          : `Option ${i + 1}`;
+      const description =
+        raw && typeof raw === "object"
+          ? String((raw as any).description ?? "")
+          : "";
+      // MarketV2 type may not include on-chain optionShares in this shape.
+      // Use a safe access via `any` so TS doesn't error and fall back to 0n.
+      const maybeOptionShares = (market as any)?.optionShares;
+      const totalShares =
+        maybeOptionShares && typeof maybeOptionShares[i] !== "undefined"
+          ? BigInt(maybeOptionShares[i])
+          : 0n;
+      return {
+        name,
+        description,
+        totalShares,
+        totalVolume: 0n,
+        currentPrice: 0n,
+        isActive: !market.resolved,
+      } as MarketOption;
+    });
+  })();
 
   // Fetch full market info (legacy multi-field tuple)
   const { data: marketInfo } = useReadContract({
@@ -290,10 +327,47 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     fetchCommentCount();
   }, [index]);
 
+  // Detect mobile viewport (used to conditionally hide the event-based badge
+  // when category + free + event badges would otherwise all appear).
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Use a breakpoint of 767px (matches max-width: 767px -> mobile)
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handle = (e: MediaQueryListEvent | MediaQueryList) =>
+      setIsMobile(e.matches);
+    // Initialize
+    setIsMobile(mq.matches);
+    // Add listener (support both modern and legacy APIs)
+    if ((mq as any).addEventListener) {
+      (mq as any).addEventListener("change", handle);
+    } else {
+      // @ts-ignore - fallback for older browsers
+      mq.addListener(handle);
+    }
+    return () => {
+      if ((mq as any).removeEventListener) {
+        (mq as any).removeEventListener("change", handle);
+      } else {
+        // @ts-ignore - fallback for older browsers
+        mq.removeListener(handle);
+      }
+    };
+  }, []);
+
   // Determine market status
   const isExpired = new Date(Number(market.endTime) * 1000) < new Date();
   const isResolved = market.resolved;
   const isInvalidated = market.invalidated;
+
+  // Badge visibility helpers
+  const hasCategoryBadge =
+    typeof market.category !== "undefined" && market.category !== null;
+  // When on mobile and all three badges (category, free, event) would appear,
+  // prefer showing only category + type (hide event badge).
+  const showEventBadge =
+    market.earlyResolutionAllowed &&
+    !(isMobile && hasCategoryBadge && derivedMarketType === 1);
 
   // If market is invalidated, show special message instead of normal UI
   if (isInvalidated) {
@@ -310,8 +384,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               <InvalidatedBadge />
               {/* Show free market badge if marketType === 1 */}
               {derivedMarketType === 1 && <FreeMarketBadge />}
-              {/* Show event-based badge if early resolution is allowed */}
-              {market.earlyResolutionAllowed && <EventBasedBadge />}
+              {/* Show event-based badge if early resolution is allowed (respect mobile cond) */}
+              {showEventBadge && <EventBasedBadge />}
             </div>
           </div>
           <CardTitle className="text-base leading-relaxed">
@@ -395,8 +469,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
             {isInvalidated && <InvalidatedBadge />}
             {/* Show free market badge if marketType === 1 */}
             {derivedMarketType === 1 && <FreeMarketBadge />}
-            {/* Show event-based badge if early resolution is allowed */}
-            {market.earlyResolutionAllowed && <EventBasedBadge />}
+            {/* Show event-based badge if early resolution is allowed (respect mobile cond) */}
+            {showEventBadge && <EventBasedBadge />}
           </div>
         </div>
         <CardTitle className="text-base leading-relaxed">
@@ -430,10 +504,10 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               />
             </div>
           )}
-        {options.length > 0 && (
+        {displayOptions.length > 0 && (
           <MultiOptionProgress
             marketId={index}
-            options={options}
+            options={displayOptions}
             totalVolume={totalVolume}
             className="mb-4"
           />
@@ -448,8 +522,8 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
                   ? Number(market.winningOptionId) + 1
                   : 0
               }
-              optionA={options[0]?.name || "Option 1"}
-              optionB={options[1]?.name || "Option 2"}
+              optionA={displayOptions[0]?.name || "Option 1"}
+              optionB={displayOptions[1]?.name || "Option 2"}
             />
           ) : (
             <MarketPending />
@@ -466,7 +540,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               <MarketV2SharesDisplay
                 market={market}
                 userShares={userShares || []}
-                options={options}
+                options={displayOptions}
               />
               <Link href={`/market/${index}/details`}>
                 <Button variant="outline" size="sm" className="text-xs">
