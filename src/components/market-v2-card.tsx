@@ -176,6 +176,14 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     args: [BigInt(index)],
   });
 
+  // Fetch market extended metadata to get validated status directly from contract
+  const { data: marketExtendedMeta } = useReadContract({
+    address: V2contractAddress,
+    abi: V2contractAbi,
+    functionName: "getMarketExtendedMeta",
+    args: [BigInt(index)],
+  });
+
   // Normalized marketType (0 = paid, 1 = free) with fallback to positional index if explicit read missing
   const derivedMarketType: number | undefined = (() => {
     if (typeof marketTypeData === "number") return marketTypeData;
@@ -293,7 +301,22 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   // Determine market status
   const isExpired = new Date(Number(market.endTime) * 1000) < new Date();
   const isResolved = market.resolved;
-  const isValidated = market.validated;
+
+  // Use contract-sourced validated status if available, otherwise fallback to market object
+  const contractValidated = marketExtendedMeta ? marketExtendedMeta[2] : null;
+  const isValidated =
+    contractValidated !== null ? contractValidated : market.validated;
+
+  // Debug logging for invalidation logic
+  console.debug(`[MarketV2Card] market ${index} status check:`, {
+    marketInvalidated: market.invalidated,
+    marketValidated: market.validated,
+    contractValidated,
+    isValidated,
+    isResolved,
+    isExpired,
+  });
+
   // Treat validation or resolution as authoritative over legacy invalidation flags
   const isInvalidated =
     Boolean(market.invalidated) && !isValidated && !isResolved;
