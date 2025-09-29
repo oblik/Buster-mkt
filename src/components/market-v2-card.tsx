@@ -252,7 +252,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     query: { enabled: !!address },
   });
 
-  // Fetch options data with real-time prices
+  // Fetch options data: static from API (with cache-busting), real-time price from contract
   useEffect(() => {
     let mounted = true;
     const fetchOptions = async () => {
@@ -264,41 +264,44 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
       for (let i = 0; i < optionCount; i++) {
         try {
-          // Get both static option data and real-time calculated price
-          const [optionResponse, priceData] = await Promise.all([
-            fetch(`/api/market-option?marketId=${index}&optionId=${i}`),
-            (publicClient.readContract as any)({
-              address: V2contractAddress,
-              abi: V2contractAbi,
-              functionName: "calculateCurrentPrice",
-              args: [BigInt(index), BigInt(i)],
-            }).catch(() => null), // Fallback if calculateCurrentPrice fails
-          ]);
+          // Fetch static data from API with cache-busting
+          const response = await fetch(
+            `/api/market-option?marketId=${index}&optionId=${i}&t=${Date.now()}`
+          );
+          if (!response.ok) throw new Error(`API fetch failed for option ${i}`);
+          const option = await response.json();
 
-          if (optionResponse.ok) {
-            const option = await optionResponse.json();
-            let realTimePrice: bigint;
-            if (priceData !== null && priceData !== undefined) {
-              realTimePrice =
-                typeof priceData === "bigint"
-                  ? priceData
-                  : BigInt(priceData as string);
-            } else {
-              realTimePrice = BigInt(option.currentPrice);
-            }
+          // Fetch real-time price from contract
+          const priceData = await (publicClient.readContract as any)({
+            address: V2contractAddress,
+            abi: V2contractAbi,
+            functionName: "calculateCurrentPrice",
+            args: [BigInt(index), BigInt(i)],
+          });
+          const realTimePrice = priceData
+            ? BigInt(priceData)
+            : BigInt(option.currentPrice || 0);
 
-            optionsData.push({
-              name: option.name,
-              description: option.description,
-              totalShares: BigInt(option.totalShares),
-              totalVolume: BigInt(option.totalVolume),
-              currentPrice: realTimePrice, // Use real-time calculated price
-              isActive: option.isActive,
-            });
-            totalVol += BigInt(option.totalVolume);
-          }
+          optionsData.push({
+            name: option.name || `Option ${i + 1}`,
+            description: option.description || "",
+            totalShares: BigInt(option.totalShares || 0),
+            totalVolume: BigInt(option.totalVolume || 0),
+            currentPrice: realTimePrice,
+            isActive: option.isActive ?? true,
+          });
+          totalVol += BigInt(option.totalVolume || 0);
         } catch (error) {
           console.error(`Error fetching option ${i}:`, error);
+          // Fallback: minimal option to prevent crashes
+          optionsData.push({
+            name: `Option ${i + 1}`,
+            description: "",
+            totalShares: 0n,
+            totalVolume: 0n,
+            currentPrice: 0n,
+            isActive: false,
+          });
         }
       }
 
@@ -308,10 +311,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
       }
     };
 
-    // run once now
     fetchOptions();
 
-    // Listen for global market-updated events and refresh only if it matches this market
+    // Listen for global market-updated events and refetch
     const handler = (e: Event) => {
       try {
         const ev = e as CustomEvent;
@@ -329,6 +331,11 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
       window.removeEventListener("market-updated", handler);
     };
   }, [index, marketInfo]);
+
+  // Calculate probabilities from prices (pass to MultiOptionProgress)
+  const probabilities = displayOptions.map((option) =>
+    Math.max(0, Math.min(100, (Number(option.currentPrice) / 1e18) * 100))
+  );
 
   // Fetch comment count
   useEffect(() => {
@@ -528,6 +535,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           <MultiOptionProgress
             marketId={index}
             options={displayOptions}
+            probabilities={probabilities} // New prop
             totalVolume={totalVolume}
             className="mb-4"
           />
