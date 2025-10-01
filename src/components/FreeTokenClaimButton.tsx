@@ -364,7 +364,7 @@ export function FreeTokenClaimButton({
           description: (
             <div className="flex flex-col gap-2">
               <p>
-                You've claimed {formatPrice(tokensPerParticipant, 18)} free
+                You&apos;ve claimed {formatPrice(tokensPerParticipant, 18)} free
                 tokens for this market.
               </p>
               <Button
