@@ -744,9 +744,6 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
             {/* Dedicated Position Card */}
             {hasShares && (
               <div className="mt-4 p-3 bg-white dark:bg-slate-900/50 rounded-lg border border-slate-200 dark:border-slate-800">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
-                  Your Position
-                </h3>
                 <MarketV2SharesDisplay
                   market={market}
                   userShares={userShares || []}
