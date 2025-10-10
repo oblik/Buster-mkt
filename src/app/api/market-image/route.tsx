@@ -437,11 +437,9 @@ export async function GET(request: NextRequest) {
         { maximumFractionDigits: 0 }
       );
     } else {
-      // V2 market - calculate percentages from total shares
-      const totalShares = market.options.reduce(
-        (sum, opt) => sum + opt.totalShares,
-        0n
-      );
+      // V2 market - calculate percentages from currentPrice (LMSR probability)
+      // currentPrice is in 1e18 units and represents probability (0-1 range)
+      // Multiply by 100 to get percentage (0-100 range)
 
       const optionColors = [
         "#2563eb", // blue
@@ -454,14 +452,19 @@ export async function GET(request: NextRequest) {
         "#8b5cf6", // violet
       ];
 
-      optionsData = market.options.map((opt, idx) => ({
-        name: truncateText(opt.name, 25),
-        percentage:
-          totalShares > 0n
-            ? Number((opt.totalShares * 100n) / totalShares)
-            : Math.floor(100 / market.options.length),
-        color: optionColors[idx % optionColors.length],
-      }));
+      optionsData = market.options.map((opt, idx) => {
+        // Convert currentPrice from 1e18 to percentage (0-100)
+        const probability = Math.max(
+          0,
+          Math.min(100, (Number(opt.currentPrice) / 1e18) * 100)
+        );
+
+        return {
+          name: truncateText(opt.name, 25),
+          percentage: probability,
+          color: optionColors[idx % optionColors.length],
+        };
+      });
 
       totalVolumeFormatted = (
         Number(market.totalVolume) /
@@ -512,17 +515,34 @@ export async function GET(request: NextRequest) {
               fontWeight: "bold",
             }}
           >
-            🎯 Policast {market.version === "v2" ? "V2" : ""}
+            🎯 Policast
           </div>
           <div
             style={{
               display: "flex",
-              fontSize: "16px",
-              opacity: 0.9,
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: "4px",
             }}
           >
-            Market #{cleanMarketId}{" "}
-            {market.version === "v2" ? "(Multi-Option)" : "(Binary)"}
+            <div
+              style={{
+                display: "flex",
+                fontSize: "14px",
+                opacity: 0.8,
+              }}
+            >
+              Market #{cleanMarketId}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                fontSize: "16px",
+                fontWeight: "600",
+              }}
+            >
+              Vol: {totalVolumeFormatted} BSTR
+            </div>
           </div>
         </div>
 
@@ -662,76 +682,20 @@ export async function GET(request: NextRequest) {
             ))}
           </div>
 
-          {/* Footer stats */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginTop: "20px",
-              padding: "18px 24px",
-              background: colors.gradient.footer,
-              borderRadius: "12px",
-              border: `1px solid ${colors.border}`,
-            }}
-          >
+          {/* Footer - only show if resolved */}
+          {market.resolved && (
             <div
               style={{
                 display: "flex",
-                flexDirection: "column",
-                textAlign: "center",
+                justifyContent: "center",
+                alignItems: "center",
+                marginTop: "20px",
+                padding: "18px 24px",
+                background: colors.gradient.footer,
+                borderRadius: "12px",
+                border: `1px solid ${colors.border}`,
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "13px",
-                  color: colors.text.secondary,
-                  marginBottom: "4px",
-                }}
-              >
-                Total Volume
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "16px",
-                  fontWeight: "bold",
-                  color: colors.text.primary,
-                }}
-              >
-                {totalVolumeFormatted} BSTR
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "13px",
-                  color: colors.text.secondary,
-                  marginBottom: "4px",
-                }}
-              >
-                Options
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: "16px",
-                  fontWeight: "bold",
-                  color: colors.text.primary,
-                }}
-              >
-                {optionsData.length}
-              </div>
-            </div>
-            {market.resolved && (
               <div
                 style={{
                   display: "flex",
@@ -747,7 +711,7 @@ export async function GET(request: NextRequest) {
                     marginBottom: "4px",
                   }}
                 >
-                  Winner
+                  🏆 Winner
                 </div>
                 <div
                   style={{
@@ -762,17 +726,17 @@ export async function GET(request: NextRequest) {
                         market.outcome === 1
                           ? market.optionA!
                           : market.optionB!,
-                        20
+                        30
                       )
                     : truncateText(
                         optionsData[Number(market.winningOptionId)]?.name ||
                           `Option ${Number(market.winningOptionId) + 1}`,
-                        20
+                        30
                       )}
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     );
