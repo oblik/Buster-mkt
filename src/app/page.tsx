@@ -4,13 +4,25 @@ import { OnboardingModal } from "@/components/OnboardingModal";
 import { Suspense } from "react";
 import { Metadata } from "next";
 
+// Force dynamic rendering to avoid SSR issues with Base Account SDK
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Policast - Political Prediction Markets | Trade on Politics",
-  description: "Join the decentralized political prediction market. Bet on election outcomes, policy decisions, and political events with crypto. Secure, transparent, and community-driven.",
-  keywords: ["political prediction markets", "election betting", "political trading", "crypto betting", "decentralized markets", "blockchain predictions"],
+  description:
+    "Join the decentralized political prediction market. Bet on election outcomes, policy decisions, and political events with crypto. Secure, transparent, and community-driven.",
+  keywords: [
+    "political prediction markets",
+    "election betting",
+    "political trading",
+    "crypto betting",
+    "decentralized markets",
+    "blockchain predictions",
+  ],
   openGraph: {
     title: "Policast - Political Prediction Markets",
-    description: "Join the decentralized political prediction market. Bet on election outcomes, policy decisions, and political events with crypto.",
+    description:
+      "Join the decentralized political prediction market. Bet on election outcomes, policy decisions, and political events with crypto.",
     images: [
       {
         url: "/icon.jpg",
@@ -25,7 +37,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Policast - Political Prediction Markets",
-    description: "Join the decentralized political prediction market. Bet on election outcomes, policy decisions, and political events with crypto.",
+    description:
+      "Join the decentralized political prediction market. Bet on election outcomes, policy decisions, and political events with crypto.",
     images: ["/icon.jpg"],
   },
   other: {

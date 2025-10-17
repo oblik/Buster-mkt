@@ -23,7 +23,7 @@ export function SpendPermissionManager() {
     error: subAccountError,
   } = useSubAccount();
 
-  const [allowanceAmount, setAllowanceAmount] = useState("1000");
+  const [allowanceAmount, setAllowanceAmount] = useState("1000000");
   const [periodDays, setPeriodDays] = useState("30");
 
   const {
