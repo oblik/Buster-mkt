@@ -98,6 +98,14 @@ export function useSpendPermission(
         setLoading(true);
         setError(null);
 
+        console.log("🔐 Requesting spend permission:", {
+          account,
+          spender,
+          token: tokenAddress,
+          allowance: allowance.toString(),
+          periodInDays,
+        });
+
         const newPermission = await requestSpendPermission({
           account: account as `0x${string}`,
           spender: spender as `0x${string}`,
@@ -108,6 +116,8 @@ export function useSpendPermission(
           provider,
         });
 
+        console.log("✅ Spend permission granted:", newPermission);
+
         setPermission(newPermission);
         setIsActive(true);
         setRemainingSpend(allowance);
@@ -116,6 +126,7 @@ export function useSpendPermission(
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Failed to request permission";
+        console.error("❌ Permission request failed:", err);
         setError(errorMessage);
         throw new Error(errorMessage);
       } finally {

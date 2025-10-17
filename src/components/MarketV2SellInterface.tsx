@@ -104,7 +104,7 @@ export function MarketV2SellInterface({
   });
   const { toast } = useToast();
 
-  // Sub Account hook (no spend permission needed for selling)
+  // Sub Account hook
   const { subAccount, isReady: subAccountReady } = useSubAccount();
 
   const [isSelling, setIsSelling] = useState(false);
