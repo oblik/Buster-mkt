@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import {
   requestSpendPermission,
   prepareSpendCallData,
-} from "@base-org/account/spend-permission";
+} from "@base-org/account/spend-permission/browser";
 import { provider } from "@/lib/baseAccount";
 import { tokenAddress } from "@/constants/contract";
 import { base } from "viem/chains";
