@@ -27,6 +27,9 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { MarketV2 } from "@/types/types";
 import { MarketV2SharesDisplay } from "./market-v2-shares-display";
+import { useSubAccount } from "@/hooks/useSubAccount";
+import { provider } from "@/lib/baseAccount";
+import { base } from "viem/chains";
 
 interface MarketV2SellInterfaceProps {
   marketId: number;
@@ -100,6 +103,9 @@ export function MarketV2SellInterface({
     hash,
   });
   const { toast } = useToast();
+
+  // Sub Account hook (no spend permission needed for selling)
+  const { subAccount, isReady: subAccountReady } = useSubAccount();
 
   const [isSelling, setIsSelling] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
@@ -222,6 +228,143 @@ export function MarketV2SellInterface({
   const calculateMinPrice = useCallback((pricePerShare: bigint): bigint => {
     return withNegBuffer(pricePerShare, SELL_SLIPPAGE_BPS);
   }, []);
+
+  // Handle seamless sell using sub account
+  const handleSeamlessSell = useCallback(async () => {
+    if (!subAccount || !subAccountReady) {
+      toast({
+        title: "Sub Account Not Ready",
+        description: "Please wait for sub account initialization",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (
+      selectedOptionId === null ||
+      !sellAmount ||
+      !tokenDecimals ||
+      !estimatedRevenue
+    ) {
+      toast({
+        title: "Invalid Input",
+        description: "Please enter a valid amount to sell",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setSellingStep("processing");
+
+      const sellAmountBigInt = quantityInShares;
+
+      // Use on-chain avg price per share when available
+      const avgPricePerShare =
+        avgPricePerShareFromQuote > 0n
+          ? avgPricePerShareFromQuote
+          : sellAmountBigInt > 0n
+          ? ((estimatedRevenue as bigint) * 1000000000000000000n) /
+            sellAmountBigInt
+          : 0n;
+      const minPricePerShare = calculateMinPrice(avgPricePerShare);
+      const minTotalProceeds =
+        netRefundFromQuote > 0n
+          ? withNegBuffer(netRefundFromQuote)
+          : withNegBuffer(estimatedRevenue as bigint);
+
+      console.log("=== SEAMLESS SELL ===");
+      console.log("Sub account:", subAccount);
+      console.log("Market ID:", marketId);
+      console.log("Option ID:", selectedOptionId);
+      console.log("Sell Amount:", sellAmountBigInt.toString());
+      console.log("Min Price Per Share:", minPricePerShare.toString());
+
+      const sellCall = {
+        to: V2contractAddress,
+        data: encodeFunctionData({
+          abi: V2contractAbi,
+          functionName: "sellShares",
+          args: [
+            BigInt(marketId),
+            BigInt(selectedOptionId),
+            sellAmountBigInt,
+            minPricePerShare,
+            minTotalProceeds,
+          ],
+        }),
+        value: 0n,
+      };
+
+      // Execute via sub account (no spend permission needed for selling)
+      await provider.request({
+        method: "wallet_sendCalls",
+        params: [
+          {
+            version: "1.0",
+            chainId: `0x${base.id.toString(16)}`,
+            from: subAccount,
+            calls: [
+              {
+                to: sellCall.to,
+                data: sellCall.data,
+                value: sellCall.value
+                  ? `0x${sellCall.value.toString(16)}`
+                  : undefined,
+              },
+            ],
+          },
+        ],
+      });
+
+      setSellingStep("sellSuccess");
+      setSellAmount("");
+      setSelectedOptionId(null);
+
+      toast({
+        title: "Shares Sold!",
+        description: "Transaction completed without wallet popup!",
+      });
+
+      // Dispatch market update event
+      window.dispatchEvent(
+        new CustomEvent("market-updated", {
+          detail: { marketId },
+        })
+      );
+
+      if (onSellComplete) {
+        onSellComplete();
+      }
+    } catch (err) {
+      console.error("Seamless sell failed:", err);
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      setError(errorMessage);
+      toast({
+        title: "Sell Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      setSellingStep("initial");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [
+    subAccount,
+    subAccountReady,
+    selectedOptionId,
+    sellAmount,
+    tokenDecimals,
+    estimatedRevenue,
+    quantityInShares,
+    avgPricePerShareFromQuote,
+    netRefundFromQuote,
+    calculateMinPrice,
+    marketId,
+    onSellComplete,
+    toast,
+  ]);
 
   // Handle sell transaction
   const handleSell = useCallback(async () => {
@@ -640,7 +783,11 @@ export function MarketV2SellInterface({
                 Back
               </Button>
               <Button
-                onClick={handleSell}
+                onClick={
+                  subAccountReady && subAccount
+                    ? handleSeamlessSell
+                    : handleSell
+                }
                 disabled={isProcessing}
                 className="flex-1 bg-red-600 hover:bg-red-700 text-xs h-8"
               >

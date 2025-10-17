@@ -29,6 +29,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatPrice } from "@/lib/utils";
+import { useSubAccount } from "@/hooks/useSubAccount";
+import { provider } from "@/lib/baseAccount";
+import { encodeFunctionData } from "viem";
+import { base } from "viem/chains";
 
 interface FreeTokenClaimButtonProps {
   marketId: number;
@@ -54,6 +58,9 @@ export function FreeTokenClaimButton({
   const { toast } = useToast();
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "https://buster-mkt.vercel.app";
+
+  // Sub Account hook
+  const { subAccount, isReady: subAccountReady } = useSubAccount();
 
   const {
     data: hash,
@@ -268,6 +275,112 @@ export function FreeTokenClaimButton({
       toast({
         title: "Sharing Failed",
         description: "Could not share to Farcaster. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSeamlessClaimFreeTokens = async () => {
+    if (!subAccount || !subAccountReady) {
+      toast({
+        title: "Sub Account Not Ready",
+        description: "Please wait for sub account initialization",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!address) {
+      toast({
+        title: "Error",
+        description: "Please connect your wallet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (hasUserClaimed) {
+      toast({
+        title: "Already Claimed",
+        description:
+          "You have already claimed your free shares for this market.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (slotsRemaining <= 0n) {
+      toast({
+        title: "No Slots Available",
+        description: "All free token slots have been claimed for this market.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedOptionId) {
+      toast({
+        title: "Select an outcome",
+        description: "Choose the outcome you'd like your free shares to back.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setLastErrorMessage(null);
+
+      const claimCall = {
+        to: V2contractAddress,
+        data: encodeFunctionData({
+          abi: V2contractAbi,
+          functionName: "claimFreeTokens",
+          args: [BigInt(marketId), BigInt(selectedOptionId)],
+        }),
+        value: 0n,
+      };
+
+      console.log("=== SEAMLESS FREE TOKEN CLAIM ===");
+      console.log("Sub account:", subAccount);
+      console.log("Market ID:", marketId);
+      console.log("Option ID:", selectedOptionId);
+
+      await provider.request({
+        method: "wallet_sendCalls",
+        params: [
+          {
+            version: "1.0",
+            chainId: `0x${base.id.toString(16)}`,
+            from: subAccount,
+            calls: [
+              {
+                to: claimCall.to,
+                data: claimCall.data,
+                value: claimCall.value
+                  ? `0x${claimCall.value.toString(16)}`
+                  : undefined,
+              },
+            ],
+          },
+        ],
+      });
+
+      toast({
+        title: "Free Tokens Claimed!",
+        description: "Your free shares have been claimed without popup!",
+      });
+
+      if (onClaimComplete) {
+        onClaimComplete();
+      }
+    } catch (error: unknown) {
+      console.error("Seamless claim failed:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to claim free tokens";
+      setLastErrorMessage(errorMessage);
+      toast({
+        title: "Claim Failed",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -644,7 +757,11 @@ export function FreeTokenClaimButton({
 
       {/* Claim Button */}
       <Button
-        onClick={handleClaimFreeTokens}
+        onClick={
+          subAccountReady && subAccount
+            ? handleSeamlessClaimFreeTokens
+            : handleClaimFreeTokens
+        }
         disabled={
           isOptionsLoading ||
           hasUserClaimed ||

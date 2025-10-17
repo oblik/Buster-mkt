@@ -30,6 +30,10 @@ import { MarketV2 } from "@/types/types";
 import { ValidationNotice } from "./ValidationNotice";
 import { FreeTokenClaimButton } from "./FreeTokenClaimButton";
 import { MarketV2SharesDisplay } from "./market-v2-shares-display";
+import { useSubAccount } from "@/hooks/useSubAccount";
+import { useSpendPermission } from "@/hooks/useSpendPermission";
+import { provider } from "@/lib/baseAccount";
+import { base } from "viem/chains";
 
 interface MarketV2BuyInterfaceProps {
   marketId: number;
@@ -109,6 +113,26 @@ export function MarketV2BuyInterface({
     hash,
   });
   const { toast } = useToast();
+
+  // Sub Account and Spend Permission hooks
+  const {
+    subAccount,
+    universalAccount,
+    isReady: subAccountReady,
+    isInitializing: subAccountInitializing,
+  } = useSubAccount();
+
+  const {
+    permission: spendPermission,
+    isActive: hasActivePermission,
+    remainingSpend,
+    requestPermission,
+    prepareSpendCalls,
+    checkPermission,
+  } = useSpendPermission(
+    universalAccount || undefined,
+    subAccount || undefined
+  );
 
   // Fetch market info (validated flag and type)
   const { data: marketInfo } = useReadContract({
@@ -391,6 +415,162 @@ export function MarketV2BuyInterface({
       setIsValidated(null);
     }
   }, [marketExtendedMeta]);
+
+  // Handle seamless purchase using sub account and spend permission
+  const handleSeamlessPurchase = useCallback(async () => {
+    if (!subAccount || !subAccountReady || !universalAccount) {
+      toast({
+        title: "Sub Account Not Ready",
+        description: "Please wait for sub account initialization",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (selectedOptionId === null || !amount || !tokenDecimals) {
+      toast({
+        title: "Invalid Input",
+        description: "Please select an option and enter an amount",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setError(null);
+
+      const sharesInWei = sharesToWei(amount);
+      const requiredBalance = estimatedCost || 0n;
+
+      // Check if we need a new permission or renewal
+      if (!hasActivePermission || remainingSpend < requiredBalance) {
+        const allowanceNeeded = requiredBalance * 10n; // Request 10x for multiple trades
+
+        toast({
+          title: "Requesting Spend Permission",
+          description:
+            "Please approve the spend permission to enable seamless trading",
+        });
+
+        await requestPermission({
+          allowance: allowanceNeeded,
+          periodInDays: 30,
+        });
+
+        toast({
+          title: "Permission Granted",
+          description: "You can now trade without wallet popups!",
+        });
+      }
+
+      // Prepare buy transaction
+      const avgPricePerShare = buyQuote
+        ? ((buyQuote as any)[3] as bigint)
+        : currentOptionPrice;
+      const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
+      const maxTotalCost = requiredBalance
+        ? (requiredBalance * 102n) / 100n // 2% buffer
+        : requiredBalance;
+
+      const buyCall = {
+        to: V2contractAddress,
+        data: encodeFunctionData({
+          abi: V2contractAbi,
+          functionName: "buyShares",
+          args: [
+            BigInt(marketId),
+            BigInt(selectedOptionId),
+            sharesInWei,
+            maxPricePerShare,
+            maxTotalCost,
+          ],
+        }),
+        value: 0n,
+      };
+
+      // Prepare spend permission calls
+      const spendCalls =
+        spendPermission && hasActivePermission
+          ? await prepareSpendCalls(requiredBalance)
+          : [];
+
+      // Combine all calls
+      const allCalls = [...spendCalls, buyCall];
+
+      console.log("=== SEAMLESS PURCHASE ===");
+      console.log("Sub account:", subAccount);
+      console.log("Required balance:", requiredBalance.toString());
+      console.log("Spend calls:", spendCalls.length);
+      console.log("Total calls:", allCalls.length);
+
+      // Execute via sub account using wallet_sendCalls
+      const txHash = await provider.request({
+        method: "wallet_sendCalls",
+        params: [
+          {
+            version: "1.0",
+            chainId: `0x${base.id.toString(16)}`,
+            from: subAccount,
+            calls: allCalls.map((call) => ({
+              to: call.to,
+              data: call.data,
+              value: call.value ? `0x${call.value.toString(16)}` : undefined,
+            })),
+          },
+        ],
+      });
+
+      console.log("Transaction hash:", txHash);
+
+      setBuyingStep("purchaseSuccess");
+      setAmount("");
+
+      toast({
+        title: "Purchase Successful!",
+        description: `Successfully bought ${amount} shares without wallet popup!`,
+      });
+
+      // Refresh permission status
+      await checkPermission();
+
+      // Dispatch market update event
+      dispatchMarketUpdate();
+    } catch (error) {
+      console.error("Seamless purchase failed:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+
+      setError(errorMessage);
+      toast({
+        title: "Purchase Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [
+    subAccount,
+    subAccountReady,
+    universalAccount,
+    selectedOptionId,
+    amount,
+    tokenDecimals,
+    estimatedCost,
+    hasActivePermission,
+    remainingSpend,
+    spendPermission,
+    buyQuote,
+    currentOptionPrice,
+    marketId,
+    requestPermission,
+    prepareSpendCalls,
+    checkPermission,
+    calculateMaxPrice,
+    dispatchMarketUpdate,
+    toast,
+  ]);
 
   // Handle direct purchase (for cases where approval already exists)
   const handleDirectPurchase = useCallback(async () => {
@@ -828,21 +1008,6 @@ export function MarketV2BuyInterface({
       return;
     }
 
-    // Skip user shares check for now since getUserShares function doesn't exist
-    // if (userShares && selectedOptionId !== null) {
-    //   const currentShares =
-    //     Number(userShares[selectedOptionId] || 0n) / Math.pow(10, 18);
-    //   const newTotalShares = currentShares + parseFloat(amount);
-    //   if (newTotalShares > MAX_SHARES) {
-    //     setError(
-    //       `Cannot have more than ${MAX_SHARES} shares per option. You currently have ${currentShares} shares. Maximum additional purchase: ${
-    //         MAX_SHARES - currentShares
-    //       } shares.`
-    //     );
-    //     return;
-    //   }
-    // }
-
     // Check balance before proceeding
     if (!userBalance || !tokenDecimals) {
       setError("Unable to fetch balance. Please try again.");
@@ -886,15 +1051,23 @@ export function MarketV2BuyInterface({
     console.log("User balance:", userBalance.toString());
     console.log("Sufficient balance:", amountInUnits <= userBalance);
     console.log("Connector:", connector?.name, connector?.id);
+    console.log("Sub account ready:", subAccountReady);
     console.log("Supports batch transactions:", supportseBatchTransactions);
 
     setBuyingStep("confirm");
 
-    // Only use batch transactions for wallets that support EIP-5792
-    if (supportseBatchTransactions) {
+    // Priority 1: Use seamless sub account if ready
+    if (subAccountReady && subAccount) {
+      console.log("Using seamless sub account purchase method");
+      handleSeamlessPurchase();
+    }
+    // Priority 2: Use batch transactions for wallets that support EIP-5792
+    else if (supportseBatchTransactions) {
       console.log("Using batch transaction method");
       handleBatchPurchase();
-    } else {
+    }
+    // Priority 3: Fall back to sequential transaction method
+    else {
       console.log("Using sequential transaction method");
       handleSequentialPurchase();
     }
@@ -908,7 +1081,10 @@ export function MarketV2BuyInterface({
     optionData,
     marketInfo,
     connector,
+    subAccountReady,
+    subAccount,
     supportseBatchTransactions,
+    handleSeamlessPurchase,
     handleBatchPurchase,
     handleSequentialPurchase,
   ]);

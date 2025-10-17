@@ -1,0 +1,353 @@
+# Use Spend Permissions
+
+> Learn how to use Spend Permissions to allow a trusted spender to spend user assets
+
+## Overview
+
+Spend Permissions let you designate a trusted `spender` that can move assets out of a user's Base Account on their behalf.
+
+After the user signs the permission, the `spender` can initiate transfers within the limits you define — no additional prompts, pop-ups, or signatures needed from the user. This powers seamless experiences such as subscription renewals, algorithmic trading, and automated payouts.
+
+Read more about the Spend Permission Manager contract and supported chains on [GitHub](https://github.com/coinbase/spend-permissions).
+
+<Callout type="info">
+  Spend Permissions for Base App Mini Apps are coming soon and will be supported in a future update.
+</Callout>
+
+<Note>
+  If you're using Sub Accounts, learn how Base Account can automatically fund Sub Accounts and optionally skip approval prompts using [Auto Spend Permissions](/base-account/improve-ux/sub-accounts#auto-spend-permissions).
+</Note>
+
+## Usage
+
+### Request a Spend Permission
+
+You create an EIP-712 payload that describes the permission and ask the user to sign it. Store the resulting signature along with the permission data so you can register the permission on-chain later. The SDK helper below handles construction and signing for you.
+
+| Field Name  | Type      | Description                                                                              |
+| ----------- | --------- | ---------------------------------------------------------------------------------------- |
+| `account`   | `address` | Smart account this spend permission is valid for                                         |
+| `spender`   | `address` | Entity that can spend `account`'s tokens                                                 |
+| `token`     | `address` | Token address (ERC-7528 native token or ERC-20 contract)                                 |
+| `allowance` | `uint160` | Maximum allowed value to spend within each `period`                                      |
+| `period`    | `uint48`  | Time duration for resetting used `allowance` on a recurring basis (seconds)              |
+| `start`     | `uint48`  | Timestamp this spend permission is valid starting at (inclusive, unix seconds)           |
+| `end`       | `uint48`  | Timestamp this spend permission is valid until (exclusive, unix seconds)                 |
+| `salt`      | `uint256` | Arbitrary data to differentiate unique spend permissions with otherwise identical fields |
+| `extraData` | `bytes`   | Arbitrary data to attach to a spend permission which may be consumed by the `spender`    |
+
+```tsx theme={null}
+import { requestSpendPermission } from "@base-org/account/spend-permission";
+import { createBaseAccountSDK } from "@base-org/account";
+import { base } from "viem/chains";
+
+const sdk = createBaseAccountSDK({
+  appName: "Base Account SDK Demo",
+  appLogoUrl: "https://base.org/logo.png",
+  appChainIds: [base.id],
+});
+
+const permission = await requestSpendPermission({
+  account: "0x...",
+  spender: "0x...",
+  token: "0x...",
+  chainId: 8453, // or any other supported chain
+  allowance: 1_000_000n,
+  periodInDays: 30,
+  provider: sdk.getProvider(),
+});
+
+console.log("Spend Permission:", permission);
+```
+
+### Use the Spend Permission
+
+Using a permission is 2 steps:
+
+1. **Prepare the calls** — Call `prepareSpendCallData` with the permission and the requested `amount`.
+2. **Submit the calls** — Submit the calls using your app's spender account.
+
+`prepareSpendCallData` returns an array of calls needed to spend the tokens:
+
+- `approveWithSignature` — When the permission is not yet registered onchain, this call would be prepended to the `spend` call.
+- `spend` — The call to spend the tokens from the user's Base Account.
+
+```tsx theme={null}
+import { prepareSpendCallData } from "@base-org/account/spend-permission";
+
+// returns [approveWithSignatureCall, spendCall]
+const spendCalls = await prepareSpendCallData({
+  permission,
+  amount, // optional; omit to spend the remaining allowance
+});
+
+// If your app spender account supports wallet_sendCalls, submit them in batch using wallet_sendCalls
+// this is an example on how to do it using wallet_sendCalls in provider interface
+await provider.request({
+  method: "wallet_sendCalls",
+  params: [
+    {
+      version: "2.0",
+      atomicRequired: true,
+      from: spender,
+      calls: spendCalls,
+    },
+  ],
+});
+
+// If your app spender account doesn't support wallet_sendCalls, submit them in order using eth_sendTransaction
+// this is an example on how to do it using eth_sendTransaction in provider interface
+await Promise.all(
+  spendCalls.map((call) =>
+    provider.request({
+      method: "eth_sendTransaction",
+      params: [
+        {
+          ...call,
+          from: spender,
+        },
+      ],
+    })
+  )
+);
+```
+
+<Note>
+  **About the `spendCalls` array**
+
+This array has 2 calls when submitting the permission onchain for _the first time_.
+When the permission is already registered onchain, this array has only 1 call (the `spend` call).
+
+For most use cases, you don't need to worry about this.
+</Note>
+
+### Revoke a Spend Permission
+
+You can revoke a permission in two ways:
+
+- Request user approval via request to user's Base Account using `requestRevoke`.
+- Revoke silently from your app's spender by submitting the call returned from `prepareRevokeCallData`.
+
+```tsx theme={null}
+import {
+  requestRevoke,
+  prepareRevokeCallData,
+} from "@base-org/account/spend-permission";
+
+// Option A: User-initiated revoke (wallet popup)
+try {
+  const hash = await requestRevoke(permission);
+  console.log("Revoke succeeded", hash);
+} catch {
+  console.warn("Revoke was rejected or failed");
+}
+
+// Option B: Silent revoke by your app's spender account
+const revokeCall = await prepareRevokeCallData(permission);
+
+// Submit the revoke call using your app's spender account
+// this is an example on how to do it using wallet_sendCalls in provider interface
+await provider.request({
+  method: "wallet_sendCalls",
+  params: [
+    {
+      version: "2.0",
+      atomicRequired: true,
+      from: spender,
+      calls: [revokeCall],
+    },
+  ],
+});
+
+// If your app spender account doesn't support wallet_sendCalls, submit the revoke call using eth_sendTransaction
+// this is an example on how to do it using eth_sendTransaction in provider interface
+await provider.request({
+  method: "eth_sendTransaction",
+  params: [
+    {
+      ...revokeCall,
+      from: spender,
+    },
+  ],
+});
+```
+
+## API Reference
+
+- [requestSpendPermission](/base-account/reference/spend-permission-utilities/requestSpendPermission)
+- [prepareSpendCallData](/base-account/reference/spend-permission-utilities/prepareSpendCallData)
+- [requestRevoke](/base-account/reference/spend-permission-utilities/requestRevoke)
+- [prepareRevokeCallData](/base-account/reference/spend-permission-utilities/prepareRevokeCallData)
+- [fetchPermissions](/base-account/reference/spend-permission-utilities/fetchPermissions)
+- [fetchPermission](/base-account/reference/spend-permission-utilities/fetchPermission)
+- [getPermissionStatus](/base-account/reference/spend-permission-utilities/getPermissionStatus)
+
+## Complete Integration Example
+
+```typescript theme={null}
+import {
+  fetchPermissions,
+  fetchPermission,
+  getPermissionStatus,
+  prepareSpendCallData,
+  requestSpendPermission,
+  requestRevoke,
+  prepareRevokeCallData,
+} from "@base-org/account/spend-permission";
+
+import { createBaseAccountSDK } from "@base-org/account";
+import { base } from "viem/chains";
+
+const sdk = createBaseAccountSDK({
+  appName: "Base Account SDK Demo",
+  appLogoUrl: "https://base.org/logo.png",
+  appChainIds: [base.id],
+});
+
+const spender = "0xAppSpenderAddress";
+
+// 1) Fetch a specific permission by its hash
+// Use fetchPermission when you already know the permission hash
+// (e.g., stored from a previous session or passed as a parameter)
+const permission = await fetchPermission({
+  permissionHash:
+    "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  provider: sdk.getProvider(),
+});
+
+// Alternative: Fetch all permissions for a spender
+// Use fetchPermissions when you need to see all available permissions
+// and want to choose which one to use
+// const permissions = await fetchPermissions({
+//   account: "0xUserBaseAccountAddress",
+//   chainId: 84532,
+//   spender,
+//   provider: sdk.getProvider(),
+// });
+// const permission = permissions.at(0);
+
+// ========================================
+// When there IS an existing permission
+// ========================================
+
+// 2. check the status of permission
+try {
+  const { isActive, remainingSpend } = await getPermissionStatus(permission);
+  const amount = 1000n;
+
+  if (!isActive || remainingSpend < amount) {
+    throw new Error("No spend permission available");
+  }
+} catch {
+  throw new Error("No spend permission available");
+}
+
+// 3. prepare the calls
+const [approveCall, spendCall] = await prepareSpendCallData({
+  permission,
+  amount,
+});
+
+// 4. execute the calls using your app's spender account
+// this is an example using wallet_sendCalls, in production it could be using eth_sendTransaction.
+await provider.request({
+  method: "wallet_sendCalls",
+  params: [
+    {
+      version: "2.0",
+      atomicRequired: true,
+      from: spender,
+      calls: [approveCall, spendCall],
+    },
+  ],
+});
+
+// ========================================
+// When there is NOT an existing permission
+// ========================================
+
+// 2. request a spend permission to use
+const newPermission = await requestSpendPermission({
+  account: "0xUserBaseAccountAddress",
+  spender,
+  token: "0xTokenContractAddress",
+  chainId: 84532,
+  allowance: 1_000_000n,
+  periodInDays: 30,
+  provider: sdk.getProvider(),
+});
+
+// 3. prepare the calls
+const spendCalls = await prepareSpendCallData({
+  permission: newPermission,
+  amount: 1_000n,
+});
+
+// 4. execute the calls using your app's spender account
+// this is an example using eth_sendTransaction. If your app account supports wallet_sendCalls, use wallet_sendCalls to batch the calls instead.
+await Promise.all(
+  spendCalls.map((call) =>
+    provider.request({
+      method: "eth_sendTransaction",
+      params: [
+        {
+          ...call,
+          from: spender,
+        },
+      ],
+    })
+  )
+);
+
+// ========================================
+// Request user to revoke spend permission
+// ========================================
+
+try {
+  const hash = await requestRevoke(permission);
+  console.log("Revoke succeeded", hash);
+} catch {
+  throw new Error("Revoke failed");
+}
+
+// ========================================
+// Revoke spend permission in the background
+// ========================================
+
+const revokeCall = await prepareRevokeCallData(permission);
+
+await provider.request({
+  method: "wallet_sendCalls",
+  params: [
+    {
+      version: "2.0",
+      atomicRequired: true,
+      from: spender,
+      calls: [revokeCall],
+    },
+  ],
+});
+```
+
+## Example Use Case
+
+Let's say you're building an AI agent that can autonomously purchase [Zora Creator Coins](https://docs.zora.co/coins) using secure [Spend Permissions](/base-account/improve-ux/spend-permissions) on Base.
+
+This example demonstrates how to combine Base Account's [Spend Permissions](/base-account/improve-ux/spend-permissions) with Coinbase Developer Platform (CDP) [Server Wallets](https://docs.cdp.coinbase.com/server-wallets/v2/introduction/quickstart) and [Trade API](https://docs.cdp.coinbase.com/trade-api/quickstart) for seamless, gas-free AI agent transactions.
+
+<Frame>
+  <img src="https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=e349c0e1194ba676643f0f4e0efdc164" alt="Spend Permissions Agent Interface" data-og-width="2478" width="2478" data-og-height="1510" height="1510" data-path="images/base-account/spend-permissions-agent.png" data-optimize="true" data-opv="3" srcset="https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?w=280&fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=fe41dbd2177463602d0e9f7e20538d86 280w, https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?w=560&fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=489f282f6bea0fc00de43da770be9015 560w, https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?w=840&fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=e8f4cc11f200f596dc7ff43cd4c01d3c 840w, https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?w=1100&fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=26ff33f6006359b9581e858bca4f264d 1100w, https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?w=1650&fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=371ddebb26fe3845267961a30e8b8154 1650w, https://mintcdn.com/base-a060aa97/eYypSpv8y27UyEVg/images/base-account/spend-permissions-agent.png?w=2500&fit=max&auto=format&n=eYypSpv8y27UyEVg&q=85&s=84c70b6cdd71945111ad09e0d6e11f85 2500w" />
+</Frame>
+
+<CardGroup cols={2}>
+  <Card title="Live Demo" icon="rocket" href="https://base-agent-spend-permissions.vercel.app">
+    Try the live application and see spend permissions in action
+  </Card>
+
+  <Card title="Source Code" icon="github" href="https://github.com/base/demos/tree/master/base-account/agent-spend-permissions">
+    Explore the complete implementation on GitHub
+  </Card>
+</CardGroup>
+
+**Learn more:** [AI Agent with Spend Permissions](/cookbook/spend-permissions-ai-agent)
+bu
