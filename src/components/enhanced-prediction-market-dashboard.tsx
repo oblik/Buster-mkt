@@ -375,61 +375,6 @@ export function EnhancedPredictionMarketDashboard() {
                 {/* Stats Section */}
                 <div className="lg:col-span-1 space-y-6">
                   <UserStats />
-
-                  {/* V2 Analytics Quick Access */}
-                  <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950">
-                    <CardContent className="p-6">
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
-                        <BarChart3 className="h-5 w-5 text-blue-600" />
-                        Analytics
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        Access advanced analytics for prediction markets
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Link href="/analytics?tab=portfolio">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-900"
-                          >
-                            <PieChart className="h-4 w-4" />
-                            Portfolio
-                          </Button>
-                        </Link>
-                        <Link href="/analytics?tab=performance">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full flex items-center gap-2 hover:bg-purple-50 dark:hover:bg-purple-900"
-                          >
-                            <TrendingUp className="h-4 w-4" />
-                            Performance
-                          </Button>
-                        </Link>
-                        <Link href="/analytics?tab=markets">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full flex items-center gap-2 hover:bg-green-50 dark:hover:bg-green-900"
-                          >
-                            <BarChart3 className="h-4 w-4" />
-                            Markets
-                          </Button>
-                        </Link>
-                        <Link href="/analytics?tab=trades">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full flex items-center gap-2 hover:bg-orange-50 dark:hover:bg-orange-900"
-                          >
-                            <Activity className="h-4 w-4" />
-                            Trades
-                          </Button>
-                        </Link>
-                      </div>
-                    </CardContent>
-                  </Card>
                 </div>
 
                 {/* Vote History Section */}
