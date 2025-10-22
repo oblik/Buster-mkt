@@ -276,22 +276,22 @@ export function ValidatedMarketList({
   return (
     <div className="space-y-4">
       {/* Search and Filter Bar */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-gray-700">
-        <div className="flex flex-col md:flex-row gap-3">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-2 md:p-4 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 md:gap-3">
           {/* Search Input */}
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-2 md:left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               type="text"
               placeholder="Search markets..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-10"
+              className="h-9 text-sm pl-8 md:pl-10 pr-8 md:pr-10"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-2 md:right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -299,68 +299,76 @@ export function ValidatedMarketList({
           </div>
 
           {/* Category Filter */}
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-full md:w-[180px]">
-              <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value={MarketCategory.POLITICS.toString()}>
-                {CATEGORY_LABELS[MarketCategory.POLITICS]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.SPORTS.toString()}>
-                {CATEGORY_LABELS[MarketCategory.SPORTS]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.ENTERTAINMENT.toString()}>
-                {CATEGORY_LABELS[MarketCategory.ENTERTAINMENT]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.TECHNOLOGY.toString()}>
-                {CATEGORY_LABELS[MarketCategory.TECHNOLOGY]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.ECONOMICS.toString()}>
-                {CATEGORY_LABELS[MarketCategory.ECONOMICS]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.SCIENCE.toString()}>
-                {CATEGORY_LABELS[MarketCategory.SCIENCE]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.WEATHER.toString()}>
-                {CATEGORY_LABELS[MarketCategory.WEATHER]}
-              </SelectItem>
-              <SelectItem value={MarketCategory.OTHER.toString()}>
-                {CATEGORY_LABELS[MarketCategory.OTHER]}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="hidden md:block">
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full md:w-[180px] h-9 text-sm">
+                <Filter className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value={MarketCategory.POLITICS.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.POLITICS]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.SPORTS.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.SPORTS]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.ENTERTAINMENT.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.ENTERTAINMENT]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.TECHNOLOGY.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.TECHNOLOGY]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.ECONOMICS.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.ECONOMICS]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.SCIENCE.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.SCIENCE]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.WEATHER.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.WEATHER]}
+                </SelectItem>
+                <SelectItem value={MarketCategory.OTHER.toString()}>
+                  {CATEGORY_LABELS[MarketCategory.OTHER]}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Sort By */}
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-full md:w-[180px]">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest First</SelectItem>
-              <SelectItem value="oldest">Oldest First</SelectItem>
-              <SelectItem value="ending-soon">Ending Soon</SelectItem>
-              <SelectItem value="most-volume">Most Volume</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="hidden md:block">
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-full md:w-[180px] h-9 text-sm">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="oldest">Oldest First</SelectItem>
+                <SelectItem value="ending-soon">Ending Soon</SelectItem>
+                <SelectItem value="most-volume">Most Volume</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Clear Filters Button */}
-          {(searchQuery || categoryFilter !== "all" || sortBy !== "newest") && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearFilters}
-              className="whitespace-nowrap"
-            >
-              Clear Filters
-            </Button>
-          )}
+          <div className="hidden md:block">
+            {(searchQuery ||
+              categoryFilter !== "all" ||
+              sortBy !== "newest") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearFilters}
+                className="whitespace-nowrap h-9"
+              >
+                Clear Filters
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Results Count */}
-        <div className="mt-3 text-sm text-gray-600 dark:text-gray-400">
+        <div className="hidden md:block mt-3 text-sm text-gray-600 dark:text-gray-400">
           Showing {filteredMarkets.length} of{" "}
           {
             markets.filter(({ market, validated }) => {
