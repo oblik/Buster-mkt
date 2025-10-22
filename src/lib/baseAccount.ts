@@ -45,3 +45,32 @@ export const sdk = createBaseAccountSDK({
  * It can be used for all transactions, including sub account operations.
  */
 export const provider = sdk.getProvider();
+
+/**
+ * Ensure the Base Account provider is linked to the user's wallet only once per session.
+ * Avoids repeated popups when components re-mount or tabs change.
+ */
+let baseWalletLinked = false;
+const LINK_FLAG_KEY = "BASE_WALLET_LINKED_V1";
+
+export async function ensureBaseWalletLinked(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (baseWalletLinked || window.sessionStorage.getItem(LINK_FLAG_KEY) === "1") {
+    return;
+  }
+
+  try {
+    await provider.request({ method: "wallet_connect", params: [] });
+    baseWalletLinked = true;
+    window.sessionStorage.setItem(LINK_FLAG_KEY, "1");
+  } catch (err: any) {
+    // If already connected, do not surface or re-prompt
+    if (err?.message?.toLowerCase().includes("already connected")) {
+      baseWalletLinked = true;
+      window.sessionStorage.setItem(LINK_FLAG_KEY, "1");
+      return;
+    }
+    // Swallow transient popup issues due to blockers; subsequent calls can still proceed
+    throw err;
+  }
+}

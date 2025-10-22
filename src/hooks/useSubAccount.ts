@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { provider } from "@/lib/baseAccount";
+import { provider, ensureBaseWalletLinked } from "@/lib/baseAccount";
 import { useAccount } from "wagmi";
 
 interface UseSubAccountReturn {
@@ -41,31 +41,23 @@ export function useSubAccount(): UseSubAccountReturn {
 
       console.log("🔄 Connecting Base Account SDK to wallet...");
 
-      // Step 1: Connect SDK to the wallet (that's already connected via wagmi)
-      // This tells the SDK about the wallet connection
-      try {
-        await provider.request({
-          method: "wallet_connect",
-          params: [],
-        });
-        console.log("✅ SDK connected to wallet");
-      } catch (connectError: any) {
-        // If already connected, this might throw - that's okay
-        if (connectError?.message?.includes("already connected")) {
-          console.log("ℹ️ SDK already connected to wallet");
-        } else {
-          throw connectError;
-        }
-      }
+      // Step 1: Link Base provider once per session to avoid repeated popups
+      await ensureBaseWalletLinked();
+      console.log("✅ SDK connected to wallet");
 
-      // Step 2: Request accounts (triggers sub account creation if needed)
-      // With creation: "on-connect" and defaultAccount: "sub", this will:
-      // - Auto-create a sub account if it doesn't exist
-      // - Return [subAccount, universalAccount]
-      const accounts = (await provider.request({
-        method: "eth_requestAccounts",
+      // Step 2: Get accounts
+      // Prefer eth_accounts to avoid any popup; fallback to eth_requestAccounts if empty
+      let accounts = (await provider.request({
+        method: "eth_accounts",
         params: [],
       })) as string[];
+
+      if (!accounts || accounts.length === 0) {
+        accounts = (await provider.request({
+          method: "eth_requestAccounts",
+          params: [],
+        })) as string[];
+      }
 
       console.log("✅ Accounts from Base Account provider:", accounts);
 
