@@ -277,7 +277,7 @@ export function ValidatedMarketList({
     <div className="space-y-4">
       {/* Search and Filter Bar */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-2 md:p-4 border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center gap-2 md:gap-3">
+        <div className="flex items-center gap-2 md:gap-3 overflow-x-auto flex-nowrap">
           {/* Search Input */}
           <div className="flex-1 relative">
             <Search className="absolute left-2 md:left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -286,7 +286,7 @@ export function ValidatedMarketList({
               placeholder="Search markets..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 text-sm pl-8 md:pl-10 pr-8 md:pr-10"
+              className="h-9 text-sm pl-8 md:pl-10 pr-8 md:pr-10 min-w-[160px]"
             />
             {searchQuery && (
               <button
@@ -299,9 +299,9 @@ export function ValidatedMarketList({
           </div>
 
           {/* Category Filter */}
-          <div className="hidden md:block">
+          <div className="block">
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full md:w-[180px] h-9 text-sm">
+              <SelectTrigger className="w-[120px] md:w-[180px] h-9 text-sm">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
@@ -336,9 +336,9 @@ export function ValidatedMarketList({
           </div>
 
           {/* Sort By */}
-          <div className="hidden md:block">
+          <div className="block">
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-full md:w-[180px] h-9 text-sm">
+              <SelectTrigger className="w-[120px] md:w-[180px] h-9 text-sm">
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
               <SelectContent>
@@ -351,7 +351,7 @@ export function ValidatedMarketList({
           </div>
 
           {/* Clear Filters Button */}
-          <div className="hidden md:block">
+          <div className="block">
             {(searchQuery ||
               categoryFilter !== "all" ||
               sortBy !== "newest") && (

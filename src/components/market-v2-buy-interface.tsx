@@ -489,19 +489,55 @@ export function MarketV2BuyInterface({
         value: 0n,
       };
 
-      // Prepare spend permission calls
+      // Prepare spend permission calls (may include onchain registration + funding UA -> SA)
       const spendCalls =
         spendPermission && hasActivePermission
           ? await prepareSpendCalls(requiredBalance)
           : [];
 
-      // Combine all calls
-      const allCalls = [...spendCalls, buyCall];
+      // Ensure the Sub Account has allowance to spend tokens on the market contract
+      // Check SA -> Market allowance and prepend approve if insufficient
+      let approveCalls: {
+        to: `0x${string}`;
+        data: `0x${string}`;
+        value?: 0n;
+      }[] = [];
+      try {
+        const subAllowance = (await publicClient.readContract({
+          address: tokenAddress,
+          abi: tokenAbi,
+          functionName: "allowance",
+          args: [subAccount as `0x${string}`, V2contractAddress],
+        })) as bigint;
+
+        if (subAllowance < (maxTotalCost || requiredBalance)) {
+          const approveCall = {
+            to: tokenAddress as `0x${string}`,
+            data: encodeFunctionData({
+              abi: tokenAbi,
+              functionName: "approve",
+              args: [
+                V2contractAddress,
+                // Approve maxTotalCost buffer to reduce re-approvals
+                (maxTotalCost || requiredBalance) as bigint,
+              ],
+            }) as `0x${string}`,
+            value: 0n as const,
+          };
+          approveCalls = [approveCall];
+        }
+      } catch (e) {
+        console.warn("Allowance check failed; proceeding without approve", e);
+      }
+
+      // Combine in correct order: spendCalls (UA->SA), approve (SA->Market), then buy
+      const allCalls = [...spendCalls, ...approveCalls, buyCall];
 
       console.log("=== SEAMLESS PURCHASE ===");
       console.log("Sub account:", subAccount);
       console.log("Required balance:", requiredBalance.toString());
       console.log("Spend calls:", spendCalls.length);
+      console.log("Approve calls:", approveCalls.length);
       console.log("Total calls:", allCalls.length);
 
       // Execute via sub account using wallet_sendCalls

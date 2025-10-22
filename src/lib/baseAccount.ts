@@ -27,6 +27,8 @@ export const sdk = createBaseAccountSDK({
   subAccounts: {
     creation: "on-connect", // Auto-create sub account on wallet connect
     defaultAccount: "sub", // Use sub account as default for transactions
+    // Enable automatic spend-permissions based funding when needed
+    funding: "spend-permissions",
   },
   // Optional: Enable gas sponsorship if you have a paymaster
   paymasterUrls: process.env.NEXT_PUBLIC_PAYMASTER_URL

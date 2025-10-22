@@ -144,7 +144,15 @@ export function useSpendPermission(
       }
 
       try {
-        const spendCalls = await prepareSpendCallData(permission, amount);
+        // Support both SDK signatures: object form and positional
+        const prepareFn: any = prepareSpendCallData as unknown as any;
+        let spendCalls: any[];
+        try {
+          spendCalls = await prepareFn({ permission, amount });
+        } catch (_objSigErr) {
+          // Fallback to positional signature for older SDK typings
+          spendCalls = await prepareFn(permission, amount);
+        }
 
         // Update remaining spend estimate
         if (remainingSpend >= amount) {

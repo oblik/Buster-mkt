@@ -2,7 +2,7 @@
 
 import { useSpendPermission } from "@/hooks/useSpendPermission";
 import { useSubAccount } from "@/hooks/useSubAccount";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { parseUnits, formatUnits } from "viem";
 import { useState } from "react";
 import { Loader2, CheckCircle, AlertCircle, Wallet } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { tokenAddress, tokenAbi } from "@/constants/contract";
 
 export function SpendPermissionManager() {
   const { address, isConnected } = useAccount();
@@ -26,6 +27,13 @@ export function SpendPermissionManager() {
   const [allowanceAmount, setAllowanceAmount] = useState("1000000");
   const [periodDays, setPeriodDays] = useState("30");
 
+  // Fetch token decimals to format/parse correctly
+  const { data: tokenDecimals } = useReadContract({
+    address: tokenAddress,
+    abi: tokenAbi,
+    functionName: "decimals",
+  });
+
   const {
     permission,
     isActive,
@@ -40,7 +48,10 @@ export function SpendPermissionManager() {
 
   const handleRequestPermission = async () => {
     try {
-      const allowance = parseUnits(allowanceAmount, 18);
+      const allowance = parseUnits(
+        allowanceAmount,
+        typeof tokenDecimals === "number" ? tokenDecimals : 18
+      );
       const periodInDays = Number(periodDays);
 
       await requestPermission({
@@ -163,7 +174,11 @@ export function SpendPermissionManager() {
             <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900">
               <p className="text-sm text-green-900 dark:text-green-100">
                 <span className="font-medium">Remaining Balance:</span>{" "}
-                {formatUnits(remainingSpend, 18)} tokens
+                {formatUnits(
+                  remainingSpend,
+                  typeof tokenDecimals === "number" ? tokenDecimals : 18
+                )}{" "}
+                tokens
               </p>
               <p className="text-xs text-green-700 dark:text-green-300 mt-1">
                 You can trade without wallet popups!
