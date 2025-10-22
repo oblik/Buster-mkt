@@ -446,20 +446,28 @@ export function MarketV2BuyInterface({
       setError(null);
 
       const sharesInWei = sharesToWei(amount);
-      const requiredBalance = estimatedCost || 0n;
+      // Make required balance robust: use quote when available, else fallback to current price; never zero
+      const avgPricePerShareForEst = buyQuote
+        ? ((buyQuote as any)[3] as bigint)
+        : currentOptionPrice;
+      const fallbackCost =
+        sharesInWei > 0n && avgPricePerShareForEst > 0n
+          ? (sharesInWei * avgPricePerShareForEst) / 1000000000000000000n
+          : 0n;
+      const requiredBalance =
+        estimatedCost && estimatedCost > 0n ? estimatedCost : fallbackCost;
+      if (!requiredBalance || requiredBalance === 0n) {
+        throw new Error("Spend amount cannot be 0 (no price/quote yet)");
+      }
 
       // Ensure we have a valid permission with enough remaining allowance
       const ensuredPermission = await ensurePermissionFor(requiredBalance);
       if (!ensuredPermission) throw new Error("Failed to establish permission");
 
       // Prepare buy transaction
-      const avgPricePerShare = buyQuote
-        ? ((buyQuote as any)[3] as bigint)
-        : currentOptionPrice;
+      const avgPricePerShare = avgPricePerShareForEst;
       const maxPricePerShare = calculateMaxPrice(avgPricePerShare);
-      const maxTotalCost = requiredBalance
-        ? (requiredBalance * 102n) / 100n // 2% buffer
-        : requiredBalance;
+      const maxTotalCost = (requiredBalance * 102n) / 100n; // 2% buffer
 
       const buyCall = {
         to: V2contractAddress,
