@@ -4,7 +4,12 @@ import { base } from "wagmi/chains";
 
 export const publicClient = createPublicClient({
   chain: base,
-  transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL),
+  // Safe fallback to Base public RPC if an Alchemy URL isn't provided.
+  // This enables local testing without extra setup, while prod can still
+  // override via NEXT_PUBLIC_ALCHEMY_RPC_URL for reliability and rate limits.
+  transport: http(
+    process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL || "https://mainnet.base.org"
+  ),
 });
 
 export const contractAddress = "0xd24261cD87Ac11A8961a2d5df7036ad87ca7F02A";
