@@ -19,7 +19,10 @@ interface UseSubAccountReturn {
  * 3. Call eth_requestAccounts to get sub account (auto-created via SDK config)
  * 4. Sub account is index 0, universal account is index 1 (because defaultAccount: 'sub')
  */
-export function useSubAccount(): UseSubAccountReturn {
+export function useSubAccount(options?: {
+  enabled?: boolean;
+}): UseSubAccountReturn {
+  const enabled = options?.enabled ?? false;
   const { address: connectedAddress, isConnected } = useAccount();
   const [subAccount, setSubAccount] = useState<string | null>(null);
   const [universalAccount, setUniversalAccount] = useState<string | null>(null);
@@ -28,7 +31,7 @@ export function useSubAccount(): UseSubAccountReturn {
   const [isInitializing, setIsInitializing] = useState(false);
 
   const initializeSubAccount = useCallback(async () => {
-    if (!isConnected || !connectedAddress) {
+    if (!enabled || !isConnected || !connectedAddress) {
       setIsReady(false);
       setSubAccount(null);
       setUniversalAccount(null);
@@ -87,17 +90,17 @@ export function useSubAccount(): UseSubAccountReturn {
     } finally {
       setIsInitializing(false);
     }
-  }, [isConnected, connectedAddress]);
+  }, [enabled, isConnected, connectedAddress]);
 
   useEffect(() => {
-    if (isConnected && connectedAddress) {
+    if (enabled && isConnected && connectedAddress) {
       initializeSubAccount();
     } else {
       setSubAccount(null);
       setUniversalAccount(null);
       setIsReady(false);
     }
-  }, [isConnected, connectedAddress, initializeSubAccount]);
+  }, [enabled, isConnected, connectedAddress, initializeSubAccount]);
 
   return {
     subAccount,

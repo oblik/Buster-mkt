@@ -28,6 +28,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { MarketV2 } from "@/types/types";
 import { MarketV2SharesDisplay } from "./market-v2-shares-display";
 import { useSubAccount } from "@/hooks/useSubAccount";
+import { useWallet } from "./WagmiProvider";
 import { provider } from "@/lib/baseAccount";
 import { base } from "viem/chains";
 
@@ -104,8 +105,12 @@ export function MarketV2SellInterface({
   });
   const { toast } = useToast();
 
+  // Global wallet context (seamless mode toggle)
+  const { seamlessMode } = useWallet();
   // Sub Account hook
-  const { subAccount, isReady: subAccountReady } = useSubAccount();
+  const { subAccount, isReady: subAccountReady } = useSubAccount({
+    enabled: seamlessMode,
+  });
 
   const [isSelling, setIsSelling] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
@@ -784,7 +789,7 @@ export function MarketV2SellInterface({
               </Button>
               <Button
                 onClick={
-                  subAccountReady && subAccount
+                  seamlessMode && subAccountReady && subAccount
                     ? handleSeamlessSell
                     : handleSell
                 }

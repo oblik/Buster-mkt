@@ -31,6 +31,7 @@ import { ValidationNotice } from "./ValidationNotice";
 import { FreeTokenClaimButton } from "./FreeTokenClaimButton";
 import { MarketV2SharesDisplay } from "./market-v2-shares-display";
 import { useSubAccount } from "@/hooks/useSubAccount";
+import { useWallet } from "./WagmiProvider";
 import { useSpendPermission } from "@/hooks/useSpendPermission";
 import { provider } from "@/lib/baseAccount";
 import { base } from "viem/chains";
@@ -114,13 +115,16 @@ export function MarketV2BuyInterface({
   });
   const { toast } = useToast();
 
+  // Global wallet context (seamless mode toggle)
+  const { seamlessMode } = useWallet();
+
   // Sub Account and Spend Permission hooks
   const {
     subAccount,
     universalAccount,
     isReady: subAccountReady,
     isInitializing: subAccountInitializing,
-  } = useSubAccount();
+  } = useSubAccount({ enabled: seamlessMode });
 
   const {
     permission: spendPermission,
@@ -1093,7 +1097,7 @@ export function MarketV2BuyInterface({
     setBuyingStep("confirm");
 
     // Priority 1: Use seamless sub account if ready
-    if (subAccountReady && subAccount) {
+    if (seamlessMode && subAccountReady && subAccount) {
       console.log("Using seamless sub account purchase method");
       handleSeamlessPurchase();
     }

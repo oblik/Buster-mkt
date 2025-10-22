@@ -2,6 +2,7 @@
 
 import { useSpendPermission } from "@/hooks/useSpendPermission";
 import { useSubAccount } from "@/hooks/useSubAccount";
+import { useWallet } from "./WagmiProvider";
 import { useAccount, useReadContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,13 +17,14 @@ import { tokenAddress, tokenAbi } from "@/constants/contract";
 export function SpendPermissionManager() {
   const { address, isConnected } = useAccount();
   const { toast } = useToast();
+  const { seamlessMode, setSeamlessMode } = useWallet();
   const {
     subAccount,
     universalAccount,
     isReady: subAccountReady,
     isInitializing,
     error: subAccountError,
-  } = useSubAccount();
+  } = useSubAccount({ enabled: seamlessMode });
 
   const [allowanceAmount, setAllowanceAmount] = useState("1000000");
   const [periodDays, setPeriodDays] = useState("30");
@@ -86,6 +88,29 @@ export function SpendPermissionManager() {
           <p className="text-sm text-muted-foreground">
             Connect your wallet to enable seamless trading without popups.
           </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // If user has not enabled seamless mode, offer to enable it
+  if (!seamlessMode) {
+    return (
+      <Card className="border-zinc-200 dark:border-zinc-800">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Seamless Trading (Optional)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Enable Sub Accounts + Spend Permissions to trade without wallet
+            popups. You can switch this off anytime.
+          </p>
+          <Button onClick={() => setSeamlessMode(true)} className="w-full">
+            Enable Seamless Trading
+          </Button>
         </CardContent>
       </Card>
     );

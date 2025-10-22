@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { formatPrice } from "@/lib/utils";
 import { useSubAccount } from "@/hooks/useSubAccount";
+import { useWallet } from "./WagmiProvider";
 import { provider } from "@/lib/baseAccount";
 import { encodeFunctionData } from "viem";
 import { base } from "viem/chains";
@@ -59,8 +60,12 @@ export function FreeTokenClaimButton({
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "https://buster-mkt.vercel.app";
 
+  // Global wallet context (seamless mode toggle)
+  const { seamlessMode } = useWallet();
   // Sub Account hook
-  const { subAccount, isReady: subAccountReady } = useSubAccount();
+  const { subAccount, isReady: subAccountReady } = useSubAccount({
+    enabled: seamlessMode,
+  });
 
   const {
     data: hash,
@@ -758,7 +763,7 @@ export function FreeTokenClaimButton({
       {/* Claim Button */}
       <Button
         onClick={
-          subAccountReady && subAccount
+          seamlessMode && subAccountReady && subAccount
             ? handleSeamlessClaimFreeTokens
             : handleClaimFreeTokens
         }

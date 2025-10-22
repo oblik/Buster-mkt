@@ -13,7 +13,9 @@ import React from "react";
 // Constants
 
 const APP_NAME: string = "Policast";
-const APP_URL: string = process.env.NEXT_PUBLIC_URL!;
+// Use correct env var name; fallback to production URL to avoid undefined
+const APP_URL: string =
+  process.env.NEXT_PUBLIC_APP_URL || "https://buster-mkt.vercel.app";
 const APP_ICON_URL: string = `${APP_URL}/icon.png`;
 
 // Wallet context and types
@@ -25,6 +27,10 @@ interface WalletContextType {
   address: string | undefined;
   connectors: readonly any[];
   primaryConnector: any;
+  // New: surface active connector id and seamless trading preference
+  connectorId?: string;
+  seamlessMode: boolean;
+  setSeamlessMode: (enabled: boolean) => void;
 }
 
 const WalletContext = createContext<WalletContextType | null>(null);
@@ -113,6 +119,7 @@ function WalletProvider({ children }: { children: React.ReactNode }) {
     address,
     isConnected: wagmiIsConnected,
     isConnecting: wagmiIsConnecting,
+    connector,
   } = useAccount();
 
   // Auto-connect logic
@@ -124,6 +131,50 @@ function WalletProvider({ children }: { children: React.ReactNode }) {
     wagmiConnectors.find((c) => c.id === "coinbaseWalletSDK") ||
     wagmiConnectors.find((c) => c.id === "metaMask") ||
     (wagmiConnectors.length > 0 ? wagmiConnectors[0] : undefined);
+
+  // Seamless mode preference (Base Sub Account flows)
+  const [seamlessMode, setSeamlessModeState] = useState<boolean>(false);
+
+  // Load preference per address or choose sensible defaults by connector
+  useEffect(() => {
+    if (!address) {
+      setSeamlessModeState(false);
+      return;
+    }
+
+    const key = `SEAMLESS_MODE:${address.toLowerCase()}`;
+    const saved =
+      typeof window !== "undefined" ? window.localStorage.getItem(key) : null;
+
+    if (saved === "1" || saved === "0") {
+      setSeamlessModeState(saved === "1");
+      return;
+    }
+
+    // Default behavior by connector type if no saved preference
+    const id = connector?.id || "";
+    const name = connector?.name || "";
+    const defaultOn =
+      id === "miniAppConnector" ||
+      id === "coinbaseWalletSDK" ||
+      name.includes("Farcaster") ||
+      name.includes("Coinbase");
+    setSeamlessModeState(!!defaultOn);
+  }, [address, connector?.id, connector?.name]);
+
+  // Persist preference when it changes
+  useEffect(() => {
+    if (!address) return;
+    const key = `SEAMLESS_MODE:${address.toLowerCase()}`;
+    try {
+      if (seamlessMode) window.localStorage.setItem(key, "1");
+      else window.localStorage.setItem(key, "0");
+    } catch {}
+  }, [address, seamlessMode]);
+
+  const setSeamlessMode = (enabled: boolean) => {
+    setSeamlessModeState(enabled);
+  };
 
   const walletValue: WalletContextType = {
     connect: (connectorId?: string) => {
@@ -142,6 +193,9 @@ function WalletProvider({ children }: { children: React.ReactNode }) {
     address,
     connectors: wagmiConnectors,
     primaryConnector,
+    connectorId: connector?.id,
+    seamlessMode,
+    setSeamlessMode,
   };
 
   return (
