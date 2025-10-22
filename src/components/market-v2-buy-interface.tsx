@@ -131,6 +131,7 @@ export function MarketV2BuyInterface({
     isActive: hasActivePermission,
     remainingSpend,
     requestPermission,
+    ensurePermissionFor,
     prepareSpendCalls,
     checkPermission,
   } = useSpendPermission(
@@ -447,26 +448,9 @@ export function MarketV2BuyInterface({
       const sharesInWei = sharesToWei(amount);
       const requiredBalance = estimatedCost || 0n;
 
-      // Check if we need a new permission or renewal
-      if (!hasActivePermission || remainingSpend < requiredBalance) {
-        const allowanceNeeded = requiredBalance * 10n; // Request 10x for multiple trades
-
-        toast({
-          title: "Requesting Spend Permission",
-          description:
-            "Please approve the spend permission to enable seamless trading",
-        });
-
-        await requestPermission({
-          allowance: allowanceNeeded,
-          periodInDays: 30,
-        });
-
-        toast({
-          title: "Permission Granted",
-          description: "You can now trade without wallet popups!",
-        });
-      }
+      // Ensure we have a valid permission with enough remaining allowance
+      const ensuredPermission = await ensurePermissionFor(requiredBalance);
+      if (!ensuredPermission) throw new Error("Failed to establish permission");
 
       // Prepare buy transaction
       const avgPricePerShare = buyQuote
@@ -493,11 +477,8 @@ export function MarketV2BuyInterface({
         value: 0n,
       };
 
-      // Prepare spend permission calls (may include onchain registration + funding UA -> SA)
-      const spendCalls =
-        spendPermission && hasActivePermission
-          ? await prepareSpendCalls(requiredBalance)
-          : [];
+      // Prepare spend calls for the exact required balance (UA -> SA)
+      const spendCalls = await prepareSpendCalls(requiredBalance);
 
       // Ensure the Sub Account has allowance to spend tokens on the market contract
       // Check SA -> Market allowance and prepend approve if insufficient

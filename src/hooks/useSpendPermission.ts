@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from "react";
 import {
   requestSpendPermission,
   prepareSpendCallData,
+  fetchPermissions,
+  getPermissionStatus,
 } from "@base-org/account/spend-permission/browser";
 import { provider } from "@/lib/baseAccount";
 import { tokenAddress } from "@/constants/contract";
@@ -35,6 +37,8 @@ interface UseSpendPermissionReturn {
     periodInDays?: number;
   }) => Promise<SpendPermission>;
   checkPermission: () => Promise<void>;
+  refreshPermission: () => Promise<void>;
+  ensurePermissionFor: (minAmount: bigint) => Promise<SpendPermission>;
   prepareSpendCalls: (amount: bigint) => Promise<any[]>;
   loading: boolean;
   error: string | null;
@@ -50,25 +54,97 @@ export function useSpendPermission(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check existing permission status
-  const checkPermission = useCallback(async () => {
-    if (!account || !spender || !permission) {
+  // Internal: load latest permission from chain for this account/spender/token
+  const refreshPermission = useCallback(async () => {
+    if (!account || !spender) {
+      setPermission(null);
       setIsActive(false);
       setRemainingSpend(0n);
       return;
     }
-
     try {
       setError(null);
+      const perms = (await fetchPermissions({
+        account: account as `0x${string}`,
+        chainId: base.id,
+        spender: spender as `0x${string}`,
+        provider,
+      })) as any[];
 
-      // Check if permission is still valid
-      const now = Math.floor(Date.now() / 1000);
-      const isValid =
-        permission.permission.start <= now &&
-        permission.permission.end > now &&
-        remainingSpend > 0n;
+      // Filter by our token and choose the most recent permission if multiple exist
+      const filtered = (perms || []).filter(
+        (p: any) =>
+          (p?.permission?.token || "").toLowerCase() ===
+          tokenAddress.toLowerCase()
+      );
+      const latest = filtered?.[0] || null;
+      if (!latest) {
+        setPermission(null);
+        setIsActive(false);
+        setRemainingSpend(0n);
+        return;
+      }
 
-      setIsActive(isValid);
+      setPermission(latest as unknown as SpendPermission);
+
+      // Compute status using SDK helper
+      try {
+        const status = (await getPermissionStatus(latest)) as any;
+        const rem: bigint = BigInt(
+          status?.remaining || status?.remainingSpend || 0
+        );
+        const active: boolean = Boolean(status?.isActive ?? rem > 0);
+        setRemainingSpend(rem);
+        setIsActive(active);
+      } catch (e) {
+        // Fallback: basic time-window check if helper unavailable
+        const now = Math.floor(Date.now() / 1000);
+        const isValid =
+          latest.permission?.start <= now && latest.permission?.end > now;
+        setIsActive(isValid);
+        // unknown remaining; keep previous
+      }
+    } catch (err) {
+      console.error("Error refreshing permission:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to refresh permission"
+      );
+      setPermission(null);
+      setIsActive(false);
+      setRemainingSpend(0n);
+    }
+  }, [account, spender]);
+
+  // Check existing permission status
+  const checkPermission = useCallback(async () => {
+    if (!account || !spender) {
+      setIsActive(false);
+      setRemainingSpend(0n);
+      return;
+    }
+    try {
+      setError(null);
+      if (!permission) {
+        await refreshPermission();
+        return;
+      }
+      // Prefer SDK status
+      try {
+        const status = (await getPermissionStatus(permission)) as any;
+        const rem: bigint = BigInt(
+          status?.remaining || status?.remainingSpend || 0
+        );
+        const active: boolean = Boolean(status?.isActive ?? rem > 0);
+        setRemainingSpend(rem);
+        setIsActive(active);
+      } catch {
+        const now = Math.floor(Date.now() / 1000);
+        const isValid =
+          permission.permission.start <= now &&
+          permission.permission.end > now &&
+          remainingSpend > 0n;
+        setIsActive(isValid);
+      }
     } catch (err) {
       console.error("Error checking permission:", err);
       setError(
@@ -76,7 +152,7 @@ export function useSpendPermission(
       );
       setIsActive(false);
     }
-  }, [account, spender, permission, remainingSpend]);
+  }, [account, spender, permission, remainingSpend, refreshPermission]);
 
   // Request new permission
   const requestPermission = useCallback(
@@ -119,8 +195,19 @@ export function useSpendPermission(
         console.log("✅ Spend permission granted:", newPermission);
 
         setPermission(newPermission);
-        setIsActive(true);
-        setRemainingSpend(allowance);
+        // Compute status accurately
+        try {
+          const status = (await getPermissionStatus(newPermission)) as any;
+          const rem: bigint = BigInt(
+            status?.remaining || status?.remainingSpend || allowance
+          );
+          const active: boolean = Boolean(status?.isActive ?? rem > 0);
+          setRemainingSpend(rem);
+          setIsActive(active);
+        } catch {
+          setIsActive(true);
+          setRemainingSpend(allowance);
+        }
 
         return newPermission;
       } catch (err) {
@@ -134,6 +221,26 @@ export function useSpendPermission(
       }
     },
     [account, spender]
+  );
+
+  // Ensure there is an active permission with at least minAmount remaining.
+  const ensurePermissionFor = useCallback(
+    async (minAmount: bigint): Promise<SpendPermission> => {
+      // Refresh to get the latest on first
+      await refreshPermission();
+
+      if (permission && isActive && remainingSpend >= minAmount) {
+        return permission;
+      }
+
+      const allowanceNeeded = minAmount * 10n; // cushion for multiple trades
+      const newPerm = await requestPermission({
+        allowance: allowanceNeeded,
+        periodInDays: 30,
+      });
+      return newPerm;
+    },
+    [permission, isActive, remainingSpend, requestPermission, refreshPermission]
   );
 
   // Prepare spend calls for a transaction
@@ -172,12 +279,11 @@ export function useSpendPermission(
 
   // Check permission status periodically
   useEffect(() => {
-    if (permission) {
-      checkPermission();
-      const interval = setInterval(checkPermission, 30000); // Check every 30 seconds
-      return () => clearInterval(interval);
-    }
-  }, [permission, checkPermission]);
+    // Attempt to load permission and monitor status
+    refreshPermission();
+    const interval = setInterval(checkPermission, 30000);
+    return () => clearInterval(interval);
+  }, [refreshPermission, checkPermission]);
 
   return {
     permission,
@@ -185,6 +291,8 @@ export function useSpendPermission(
     remainingSpend,
     requestPermission,
     checkPermission,
+    refreshPermission,
+    ensurePermissionFor,
     prepareSpendCalls,
     loading,
     error,
