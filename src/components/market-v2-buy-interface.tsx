@@ -441,6 +441,8 @@ export function MarketV2BuyInterface({
       return;
     }
 
+    // capture the last built payload for debugging across the try/catch scope
+    let lastPayload: any | undefined;
     try {
       setIsProcessing(true);
       setError(null);
@@ -533,21 +535,41 @@ export function MarketV2BuyInterface({
       console.log("Approve calls:", approveCalls.length);
       console.log("Total calls:", allCalls.length);
 
-      // Execute via sub account using wallet_sendCalls
+      // Build payload for EIP-5792 v2.0 and log it for diagnostics
+      const payload = {
+        version: "2.0" as const,
+        atomicRequired: true,
+        chainId: `0x${base.id.toString(16)}`,
+        from: subAccount,
+        calls: allCalls.map((call) => ({
+          to: call.to,
+          data: call.data,
+          // Use explicit 0x0 when value is not set; some providers reject undefined
+          value: call.value ? `0x${call.value.toString(16)}` : "0x0",
+        })),
+      };
+
+      // stash for catch visibility
+      lastPayload = payload;
+
+      try {
+        console.groupCollapsed("[Seamless] wallet_sendCalls payload");
+        const callsSummary = payload.calls.map((c, i) => ({
+          i,
+          to: c.to,
+          selector: c.data ? (c.data as string).slice(0, 10) : "0x",
+          value: c.value,
+          dataLen: c.data ? (c.data as string).length : 0,
+        }));
+        console.table(callsSummary);
+        console.log("payload:", payload);
+        console.groupEnd();
+      } catch {}
+
+      // Execute via sub account using wallet_sendCalls (EIP-5792 v2.0)
       const txHash = await provider.request({
         method: "wallet_sendCalls",
-        params: [
-          {
-            version: "1.0",
-            chainId: `0x${base.id.toString(16)}`,
-            from: subAccount,
-            calls: allCalls.map((call) => ({
-              to: call.to,
-              data: call.data,
-              value: call.value ? `0x${call.value.toString(16)}` : undefined,
-            })),
-          },
-        ],
+        params: [payload],
       });
 
       console.log("Transaction hash:", txHash);
@@ -566,9 +588,27 @@ export function MarketV2BuyInterface({
       // Dispatch market update event
       dispatchMarketUpdate();
     } catch (error) {
-      console.error("Seamless purchase failed:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      // Improve error visibility for provider/RPC structured errors
+      const anyErr = error as any;
+      const errMsg =
+        (anyErr &&
+          (anyErr.message ||
+            anyErr.reason ||
+            anyErr.error?.message ||
+            anyErr.data?.message)) ||
+        (anyErr && typeof anyErr === "object"
+          ? JSON.stringify(anyErr)
+          : "Unknown error");
+      console.error("Seamless purchase failed:", anyErr, {
+        debug: {
+          subAccount,
+          selectedOptionId,
+          amount,
+          // include last attempted payload for visibility
+          lastPayload,
+        },
+      });
+      const errorMessage = errMsg;
 
       setError(errorMessage);
       toast({
