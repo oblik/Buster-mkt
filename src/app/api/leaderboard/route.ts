@@ -123,17 +123,15 @@ export async function GET() {
     const neynar = new NeynarAPIClient({ apiKey: neynarApiKey });
     console.log("✅ Neynar client initialized.");
 
-    const [tokenDecimals] = await withRetry(() =>
-      publicClient.multicall({
-        contracts: [
-          {
-            address: defaultTokenAddress,
-            abi: defaultTokenAbi,
-            functionName: "decimals",
-          },
-        ],
+    // Fetch token decimals with a direct contract read to avoid shape mismatches
+    const tokenDecimalsRaw = await withRetry(() =>
+      publicClient.readContract({
+        address: defaultTokenAddress,
+        abi: defaultTokenAbi,
+        functionName: "decimals",
       })
-    ).then((results) => [Number(results[0].result)]);
+    );
+    const tokenDecimals = Number(tokenDecimalsRaw);
     console.log(`💸 Token Decimals: ${tokenDecimals}`);
 
     console.log("📊 Fetching leaderboard from V1 and V2 contracts...");
@@ -328,7 +326,10 @@ export async function GET() {
     console.log("📬 Fetching Farcaster users...");
     const neynarCache =
       cache.get<Record<string, NeynarUser[]>>(NEYNAR_CACHE_KEY) || {};
-    const addressesToFetch = winners
+    // Only fetch user profiles for the top N winners to keep response fast
+    const TOP_N = 10;
+    const topWinners = winners.slice(0, TOP_N);
+    const addressesToFetch = topWinners
       .map((w) => w.address)
       .filter((addr) => !neynarCache[addr]);
     let addressToUsersMap: Record<string, NeynarUser[]> = { ...neynarCache };
@@ -349,25 +350,23 @@ export async function GET() {
 
     // ==================== BUILD FINAL LEADERBOARD ====================
     console.log("🧠 Building leaderboard...");
-    const leaderboard: LeaderboardEntry[] = winners
-      .slice(0, 10) // Top 10 only
-      .map((winner) => {
-        const usersForAddress = addressToUsersMap[winner.address];
-        const user =
-          usersForAddress && usersForAddress.length > 0
-            ? usersForAddress[0]
-            : undefined;
-        return {
-          username:
-            user?.username ||
-            `${winner.address.slice(0, 6)}...${winner.address.slice(-4)}`,
-          fid: user?.fid || "nil",
-          pfp_url: user?.pfp_url || null,
-          winnings: winner.winnings,
-          voteCount: winner.voteCount,
-          address: winner.address,
-        };
-      });
+    const leaderboard: LeaderboardEntry[] = topWinners.map((winner) => {
+      const usersForAddress = addressToUsersMap[winner.address];
+      const user =
+        usersForAddress && usersForAddress.length > 0
+          ? usersForAddress[0]
+          : undefined;
+      return {
+        username:
+          user?.username ||
+          `${winner.address.slice(0, 6)}...${winner.address.slice(-4)}`,
+        fid: user?.fid || "nil",
+        pfp_url: user?.pfp_url || null,
+        winnings: winner.winnings,
+        voteCount: winner.voteCount,
+        address: winner.address,
+      };
+    });
 
     console.log("🏆 Final Leaderboard:", leaderboard);
 
