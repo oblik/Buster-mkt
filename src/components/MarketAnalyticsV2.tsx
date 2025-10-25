@@ -1,22 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useReadContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
-import {
-  subgraphClient,
-  GET_MARKETS,
-  GET_MARKET_BY_ID,
-  Market as MarketEntity,
-} from "@/lib/subgraph";
+import { subgraphClient } from "@/lib/subgraph";
+import { gql } from "graphql-request";
 import { useToast } from "@/components/ui/use-toast";
-import {
-  publicClient,
-  V2contractAddress,
-  V2contractAbi,
-  tokenAddress as defaultTokenAddress,
-  tokenAbi as defaultTokenAbi,
-} from "@/constants/contract";
+// No contract reads here; rely on subgraph and API-backed analytics
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -82,8 +71,9 @@ interface MarketListItem {
   endTime: bigint;
 }
 
-const CACHE_KEY = "market_analytics_v2_cache";
-const CACHE_TTL = 300; // 5 minutes
+// Local constants (avoid on-chain token metadata lookups)
+const DEFAULT_TOKEN_SYMBOL = "Buster";
+const DEFAULT_TOKEN_DECIMALS = 18;
 
 export function MarketAnalyticsV2() {
   const { toast } = useToast();
@@ -94,48 +84,12 @@ export function MarketAnalyticsV2() {
   const [marketsList, setMarketsList] = useState<MarketListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
-  const [tokenSymbol, setTokenSymbol] = useState<string>("buster");
-  const [tokenDecimals, setTokenDecimals] = useState<number>(18);
+  const [tokenSymbol] = useState<string>(DEFAULT_TOKEN_SYMBOL);
+  const [tokenDecimals] = useState<number>(DEFAULT_TOKEN_DECIMALS);
 
-  // Get betting token info
-  // cast useReadContract to any to avoid deep ABI typing issues in this migration
-  const { data: bettingTokenAddr } = (useReadContract as any)({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getBettingToken",
-  });
+  // Market listings come from the subgraph; no on-chain marketCount reads.
 
-  const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
-
-  // Get token metadata
-  const { data: symbolData } = (useReadContract as any)({
-    address: tokenAddress,
-    abi: defaultTokenAbi,
-    functionName: "symbol",
-    query: { enabled: !!tokenAddress },
-  });
-
-  const { data: decimalsData } = (useReadContract as any)({
-    address: tokenAddress,
-    abi: defaultTokenAbi,
-    functionName: "decimals",
-    query: { enabled: !!tokenAddress },
-  });
-
-  // Get market count
-  // We'll use the subgraph for market listings (faster than on-chain iteration)
-  const { data: marketCount } = (useReadContract as any)({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "getMarketCount",
-  });
-
-  useEffect(() => {
-    if (symbolData) setTokenSymbol(symbolData as string);
-    if (decimalsData) setTokenDecimals(Number(decimalsData));
-  }, [symbolData, decimalsData]);
-
-  // Fetch markets list from subgraph
+  // Fetch markets list from subgraph (recent by blockTimestamp)
   const {
     data: marketsData,
     isLoading: isLoadingMarkets,
@@ -143,13 +97,37 @@ export function MarketAnalyticsV2() {
   } = useQuery({
     queryKey: ["marketsList"],
     queryFn: async () => {
-      const resp = (await subgraphClient.request(GET_MARKETS, {
-        first: 50,
-        skip: 0,
-        orderBy: "totalVolume",
-        orderDirection: "desc",
-      })) as any;
-      return resp.markets as MarketEntity[];
+      const QUERY = gql`
+        query RecentMarkets($first: Int!) {
+          marketCreateds(
+            first: $first
+            orderBy: blockTimestamp
+            orderDirection: desc
+          ) {
+            marketId
+            question
+            endTime
+            creator
+          }
+          marketResolveds(
+            first: $first
+            orderBy: blockTimestamp
+            orderDirection: desc
+          ) {
+            marketId
+          }
+        }
+      `;
+      const resp = (await subgraphClient.request(QUERY, { first: 50 })) as any;
+      const resolvedSet = new Set(
+        (resp?.marketResolveds || []).map((r: any) => String(r.marketId))
+      );
+      return (resp?.marketCreateds || []).map((m: any) => ({
+        id: Number(m.marketId),
+        question: String(m.question || ""),
+        endTime: BigInt(m.endTime || 0),
+        resolved: resolvedSet.has(String(m.marketId)),
+      }));
     },
     enabled: true,
     refetchInterval: 30000,
@@ -157,13 +135,13 @@ export function MarketAnalyticsV2() {
 
   useEffect(() => {
     if (marketsData && marketsData.length > 0) {
-      const items = marketsData.map((m) => ({
+      const items = marketsData.map((m: any) => ({
         id: Number(m.id),
-        question: m.question,
-        totalVolume: BigInt(0) as unknown as bigint, // keep shape; volume handling later
+        question: String(m.question || ""),
+        totalVolume: 0n as bigint,
         participantCount: 0,
-        resolved: m.resolved,
-        endTime: BigInt(Number(m.endTime)),
+        resolved: Boolean(m.resolved),
+        endTime: BigInt(m.endTime || 0),
       }));
       setMarketsList(items);
       if (items.length > 0 && !selectedMarketId)
@@ -173,62 +151,108 @@ export function MarketAnalyticsV2() {
   }, [marketsData, isLoadingMarkets]);
 
   // Selected market details (from subgraph)
-  const {
-    data: selectedMarketData,
-    isLoading: isLoadingSelectedMarket,
-    refetch: refetchSelectedMarket,
-  } = useQuery({
-    queryKey: ["market", selectedMarketId],
-    queryFn: async () => {
-      if (!selectedMarketId) return null;
-      const resp = (await subgraphClient.request(GET_MARKET_BY_ID, {
-        id: selectedMarketId.toString(),
-      })) as any;
-      return resp.market as MarketEntity | null;
-    },
-    enabled: !!selectedMarketId,
-    refetchInterval: 30000,
-  });
+  const { data: selectedMarketData, refetch: refetchSelectedMarket } = useQuery(
+    {
+      queryKey: ["market", selectedMarketId],
+      queryFn: async () => {
+        if (!selectedMarketId) return null;
+        const QUERY = gql`
+          query MarketById($marketId: String!) {
+            marketCreateds(where: { marketId: $marketId }) {
+              marketId
+              question
+              description
+              options
+              endTime
+              category
+              creator
+            }
+            marketResolveds(where: { marketId: $marketId }) {
+              winningOptionId
+            }
+          }
+        `;
+        const resp = (await subgraphClient.request(QUERY, {
+          marketId: String(selectedMarketId),
+        })) as any;
+        const created = Array.isArray(resp?.marketCreateds)
+          ? resp.marketCreateds[0]
+          : null;
+        const resolved = Array.isArray(resp?.marketResolveds)
+          ? resp.marketResolveds[0]
+          : null;
+        if (!created) return null;
+        return {
+          id: created.marketId,
+          question: created.question,
+          description: created.description || "",
+          options: created.options || [],
+          endTime: created.endTime,
+          category: created.category,
+          creator: created.creator,
+          resolved: !!resolved,
+          winningOptionId: resolved ? resolved.winningOptionId : null,
+        } as any;
+      },
+      enabled: !!selectedMarketId,
+      refetchInterval: 30000,
+    }
+  );
 
   useEffect(() => {
-    if (!selectedMarketData) return;
-    setIsLoadingAnalytics(true);
-
-    // Map subgraph market data to MarketAnalytics shape (partial)
-    const analytics: MarketAnalytics = {
-      marketId: Number(selectedMarketData.id),
-      question: selectedMarketData.question,
-      description: selectedMarketData.description || "",
-      category: Number(selectedMarketData.category || 0),
-      optionCount: selectedMarketData.options.length,
-      resolved: selectedMarketData.resolved,
-      disputed: false,
-      winningOptionId: selectedMarketData.winningOptionId
-        ? Number(selectedMarketData.winningOptionId)
-        : undefined,
-      endTime: BigInt(Number(selectedMarketData.endTime || 0)),
-      creator: selectedMarketData.creator,
-      options: selectedMarketData.options.map((o, idx) => ({
-        id: idx,
-        name: o,
-        description: "",
-        totalShares: 0n,
-        totalVolume: 0n,
-        currentPrice: 0n,
-        isActive: true,
-      })),
-      totalVolume: 0n,
-      participantCount: 0,
-      averagePrice: 0n,
-      priceVolatility: 0n,
-      lastTradePrice: 0n,
-      lastTradeTime: 0n,
-      priceHistory: [],
+    const loadAnalytics = async () => {
+      if (!selectedMarketData) return;
+      setIsLoadingAnalytics(true);
+      try {
+        const resp = await fetch(
+          `/api/market/analytics?marketId=${selectedMarketId}&timeRange=7d`
+        );
+        const analyticsJson = resp.ok ? await resp.json() : null;
+        const options = (selectedMarketData.options || []).map(
+          (o: string, idx: number) => ({
+            id: idx,
+            name: o,
+            description: "",
+            totalShares: 0n,
+            totalVolume: 0n,
+            currentPrice: 0n,
+            isActive: !selectedMarketData.resolved,
+          })
+        );
+        const analytics: MarketAnalytics = {
+          marketId: Number(selectedMarketData.id),
+          question: selectedMarketData.question,
+          description: selectedMarketData.description || "",
+          category: Number(selectedMarketData.category || 0),
+          optionCount: options.length,
+          resolved: !!selectedMarketData.resolved,
+          disputed: false,
+          winningOptionId: selectedMarketData.winningOptionId
+            ? Number(selectedMarketData.winningOptionId)
+            : undefined,
+          endTime: BigInt(Number(selectedMarketData.endTime || 0)),
+          creator: selectedMarketData.creator,
+          options,
+          totalVolume: BigInt((analyticsJson?.totalVolume ?? 0) as number),
+          participantCount: (analyticsJson?.totalTrades ?? 0) as number,
+          averagePrice: 0n,
+          priceVolatility: BigInt(
+            Math.round(((analyticsJson?.priceChange24h ?? 0) as number) * 1e18)
+          ),
+          lastTradePrice: 0n,
+          lastTradeTime: 0n,
+          priceHistory: analyticsJson?.priceHistory ?? [],
+        };
+        setMarketAnalytics(analytics);
+      } catch (e) {
+        console.error("Failed to load analytics data", e);
+        setMarketAnalytics(null);
+      } finally {
+        setIsLoadingAnalytics(false);
+      }
     };
-
-    setMarketAnalytics(analytics);
-    setIsLoadingAnalytics(false);
-  }, [selectedMarketData]);
+    loadAnalytics();
+  }, [selectedMarketData, selectedMarketId]);
 
   // market list and selected market data are fetched via React Query (see above)
 

@@ -26,8 +26,7 @@ import { CommentSystem } from "@/components/CommentSystem";
 import { MarketV2, MarketOption, MarketCategory } from "@/types/types";
 import { useV3UserRoles } from "@/hooks/useV3UserRoles";
 import { FreeTokenClaimButton } from "@/components/FreeTokenClaimButton";
-import { useReadContract } from "wagmi";
-import { PolicastViews, PolicastViewsAbi } from "@/constants/contract";
+// No direct contract reads for details page; rely on subgraph and lightweight APIs.
 
 interface Market {
   question: string;
@@ -173,23 +172,106 @@ export function MarketDetailsClient({
   });
   const [rolesChecked, setRolesChecked] = useState(false);
 
-  // Fetch market odds for V2 markets to display accurate probabilities
-  const { data: marketOddsRaw } = useReadContract({
-    address: PolicastViews,
-    abi: PolicastViewsAbi,
-    functionName: "getMarketOdds",
-    args: [BigInt(marketId)],
-    query: {
-      enabled: market.version === "v2",
-      refetchInterval: 5000, // Refresh every 5 seconds
-    },
-  });
+  // Client-side enriched option data (subgraph-backed labels, API-backed prices/volumes)
+  const [optionData, setOptionData] = useState<MarketOption[]>([]);
+  const [totalVolume, setTotalVolume] = useState<bigint>(0n);
 
-  // Calculate probabilities from odds (convert from 0-1e18 range to percentage)
+  // Fetch per-option data via API to avoid direct on-chain reads
+  useEffect(() => {
+    let mounted = true;
+    const fetchOptions = async () => {
+      try {
+        if (market.version !== "v2") {
+          if (mounted) {
+            setOptionData([]);
+            setTotalVolume(0n);
+          }
+          return;
+        }
+        const count = Number(market.optionCount ?? market.options?.length ?? 0);
+        if (count <= 0) {
+          if (mounted) {
+            setOptionData([]);
+            setTotalVolume(0n);
+          }
+          return;
+        }
+        const opts: MarketOption[] = [];
+        let vol = 0n;
+        for (let i = 0; i < count; i++) {
+          try {
+            const res = await fetch(
+              `/api/market-option?marketId=${marketId}&optionId=${i}&t=${Date.now()}`
+            );
+            const json = res.ok ? await res.json() : null;
+            const raw = market.options?.[i];
+            const name =
+              (json?.name as string) ??
+              (typeof raw === "string" ? raw : (raw as any)?.name) ??
+              `Option ${i + 1}`;
+            const description =
+              (json?.description as string) ??
+              (typeof raw === "object"
+                ? String((raw as any)?.description ?? "")
+                : "");
+            const totalShares = json?.totalShares
+              ? BigInt(json.totalShares)
+              : BigInt((market as any)?.optionShares?.[i] ?? 0);
+            const currentPrice = json?.currentPrice
+              ? BigInt(json.currentPrice)
+              : 0n;
+            const optionVol = json?.totalVolume ? BigInt(json.totalVolume) : 0n;
+            const isActive = json?.isActive ?? !market.resolved;
+            opts.push({
+              name,
+              description,
+              totalShares,
+              totalVolume: optionVol,
+              currentPrice,
+              isActive,
+            });
+            vol += optionVol;
+          } catch (e) {
+            // Non-fatal; push safe default
+            const raw = market.options?.[i];
+            opts.push({
+              name:
+                typeof raw === "string"
+                  ? raw
+                  : (raw as any)?.name ?? `Option ${i + 1}`,
+              description:
+                typeof raw === "object"
+                  ? String((raw as any)?.description ?? "")
+                  : "",
+              totalShares: BigInt((market as any)?.optionShares?.[i] ?? 0),
+              totalVolume: 0n,
+              currentPrice: 0n,
+              isActive: !market.resolved,
+            });
+          }
+        }
+        if (mounted) {
+          setOptionData(opts);
+          setTotalVolume(vol);
+        }
+      } catch (e) {
+        if (mounted) {
+          setOptionData([]);
+          setTotalVolume(0n);
+        }
+      }
+    };
+    fetchOptions();
+    return () => {
+      mounted = false;
+    };
+  }, [marketId, market]);
+
+  // Calculate probabilities from currentPrice (0..1e18)
   const probabilities =
-    market.version === "v2" && marketOddsRaw
-      ? (marketOddsRaw as readonly bigint[]).map(
-          (odd) => Number(odd) / 1e16 // Convert to percentage (0-100)
+    market.version === "v2" && optionData.length > 0
+      ? optionData.map((o) =>
+          Math.max(0, Math.min(100, (Number(o.currentPrice) / 1e18) * 100))
         )
       : [];
 
@@ -239,9 +321,10 @@ export function MarketDetailsClient({
     };
     signalReady();
   }, []);
+  // For V2, prefer aggregated volume from API-enriched options; for V1, keep shares sum
   const totalSharesInUnits =
-    market.version === "v2" && market.optionShares
-      ? market.optionShares.reduce((sum, shares) => sum + shares, 0n)
+    market.version === "v2"
+      ? totalVolume
       : (market.totalOptionAShares || 0n) + (market.totalOptionBShares || 0n);
 
   const totalSharesDisplay = Number(totalSharesInUnits) / 10 ** TOKEN_DECIMALS;
@@ -484,11 +567,12 @@ export function MarketDetailsClient({
               Current Market Sentiment
             </h3>
             {market.version === "v2" &&
-            market.options &&
-            normalizedOptionObjects.length > 0 ? (
+            (optionData.length > 0 || normalizedOptionObjects.length > 0) ? (
               <MultiOptionProgress
                 marketId={Number(marketId)}
-                options={normalizedOptionObjects}
+                options={
+                  optionData.length > 0 ? optionData : normalizedOptionObjects
+                }
                 probabilities={probabilities}
                 totalVolume={totalSharesInUnits}
               />

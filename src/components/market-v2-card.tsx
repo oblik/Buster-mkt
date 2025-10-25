@@ -200,51 +200,17 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     });
   })();
 
-  // Fetch full market info (legacy multi-field tuple)
-  const { data: marketInfo } = useReadContract({
-    address: PolicastViews,
-    abi: PolicastViewsAbi,
-    functionName: "getMarketInfo",
-    args: [BigInt(index)],
-  });
-
-  // Fetch explicit market type (more reliable than positional index)
-  const { data: marketTypeData } = useReadContract({
-    address: PolicastViews,
-    abi: PolicastViewsAbi,
-    functionName: "getMarketType",
-    args: [BigInt(index)],
-  });
-
-  // Normalized marketType (0 = paid, 1 = free) with fallback to positional index if explicit read missing
+  // Normalized marketType from props (0 = paid, 1 = free)
   const derivedMarketType: number | undefined = (() => {
-    if (typeof marketTypeData === "number") return marketTypeData;
-    if (marketTypeData && typeof marketTypeData === "bigint")
-      return Number(marketTypeData);
+    if (typeof (market as any)?.marketType === "number")
+      return (market as any).marketType as number;
     if (
-      marketInfo &&
-      Array.isArray(marketInfo) &&
-      marketInfo.length > 7 &&
-      typeof marketInfo[7] === "number" &&
-      (marketInfo[7] === 0 || marketInfo[7] === 1)
-    ) {
-      // Legacy fallback path
-      return marketInfo[7] as number;
-    }
+      (market as any)?.marketType !== undefined &&
+      typeof (market as any)?.marketType === "bigint"
+    )
+      return Number((market as any).marketType);
     return undefined;
   })();
-
-  useEffect(() => {
-    if (derivedMarketType !== undefined) {
-      console.debug(
-        `[MarketV2Card] market ${index} marketType detected: ${derivedMarketType}`
-      );
-    } else {
-      console.debug(
-        `[MarketV2Card] market ${index} marketType unresolved yet (waiting for contract reads)`
-      );
-    }
-  }, [derivedMarketType, index]);
 
   // Fetch user shares for this market using getMarketOptionUserShares for each option
   // This matches the approach used in MarketV2PositionManager
@@ -336,14 +302,9 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
     const fetchOptions = async () => {
       try {
-        // Determine option count immediately from prop, fallback to on-chain marketInfo
+        // Determine option count from props (subgraph-backed), fallback to options length
         const propCount = Number(market?.optionCount ?? 0) || 0;
-        const infoCount =
-          marketInfo && Array.isArray(marketInfo) && marketInfo.length > 4
-            ? Number(marketInfo[4])
-            : 0;
-        const optionCount =
-          propCount || infoCount || (market.options?.length ?? 0);
+        const optionCount = propCount || (market.options?.length ?? 0);
 
         if (optionCount <= 0) {
           // clear state if there are no options
@@ -464,7 +425,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
       mounted = false;
       window.removeEventListener("market-updated", handler);
     };
-  }, [index, market, marketInfo]); // re-run when market prop or on-chain marketInfo changes
+  }, [index, market]); // re-run when market prop changes
 
   // Calculate probabilities from prices (pass to MultiOptionProgress)
   const probabilities = displayOptions.map((option) =>

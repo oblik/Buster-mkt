@@ -1,16 +1,10 @@
-import { createPublicClient, http } from "viem";
-import {
-  contract,
-  contractAbi,
-  V2contractAddress,
-  V2contractAbi,
-  PolicastViews,
-  PolicastViewsAbi,
-} from "@/constants/contract";
+// No direct on-chain reads for details page unless fallback path kicks in.
 import { notFound } from "next/navigation";
 import { Metadata, ResolvingMetadata } from "next";
 import { MarketDetailsClient } from "@/components/MarketDetailsClient";
 import { fetchMarketData as fetchMarketDataFromMigration } from "@/lib/market-migration";
+import { subgraphClient } from "@/lib/subgraph";
+import { gql } from "graphql-request";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { MarketSharesDisplay } from "@/components/market-shares-display";
@@ -63,11 +57,6 @@ export async function generateMetadata(
   }
 
   try {
-    const publicClient = createPublicClient({
-      chain: customBase,
-      transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL),
-    });
-
     // Use the same migration fetch logic as the page for consistency
     const marketResult = await fetchMarketDataFromMigration(Number(marketId));
 
@@ -172,16 +161,69 @@ export default async function MarketDetailsPage({ params }: Props) {
   }
 
   try {
-    const publicClient = createPublicClient({
-      chain: customBase,
-      transport: http(process.env.NEXT_PUBLIC_ALCHEMY_RPC_URL),
-    });
+    // Subgraph-first for V2 markets; fallback to on-chain migration for V1 or gaps
+    const QUERY = gql`
+      query MarketById($marketId: String!) {
+        marketCreateds(where: { marketId: $marketId }) {
+          marketId
+          question
+          description
+          options
+          endTime
+          category
+          marketType
+          creator
+          blockTimestamp
+        }
+        marketResolveds(where: { marketId: $marketId }) {
+          winningOptionId
+        }
+        marketInvalidateds(where: { marketId: $marketId }) {
+          id
+        }
+        marketValidateds(where: { marketId: $marketId }) {
+          id
+        }
+      }
+    `;
 
-    // Use the shared migration fetch which already implements consistent
-    // V1/V2 detection and selection across the app.
+    const data = (await subgraphClient.request(QUERY, { marketId })) as any;
+    const created = Array.isArray(data?.marketCreateds)
+      ? data.marketCreateds[0]
+      : null;
+
+    if (created) {
+      const resolved = Array.isArray(data?.marketResolveds)
+        ? data.marketResolveds[0]
+        : null;
+      const market = {
+        question: String(created.question || ""),
+        description: String(created.description || ""),
+        endTime: BigInt(created.endTime || 0),
+        category: Number(created.category || 0),
+        optionCount: Number((created.options || []).length),
+        resolved: Boolean(!!resolved),
+        disputed: false,
+        winningOptionId: resolved ? Number(resolved.winningOptionId || 0) : 0,
+        outcome: resolved ? Number(resolved.winningOptionId || 0) : 0,
+        creator: String(
+          created.creator || "0x0000000000000000000000000000000000000000"
+        ),
+        earlyResolutionAllowed: false,
+        version: "v2" as const,
+        options: (Array.isArray(created.options)
+          ? created.options
+          : []) as string[],
+        optionShares: [],
+        marketType: Number(created.marketType || 0),
+      };
+      return <MarketDetailsClient marketId={marketId} market={market} />;
+    }
+
+    // Fallback to on-chain migration util for V1 or if subgraph missing the V2 market
     const marketResult = await fetchMarketDataFromMigration(Number(marketId));
     console.log(
-      `Market ${marketId} detected as version:`,
+      `Subgraph miss -> migration fallback. Version:`,
       marketResult.version
     );
 
@@ -199,94 +241,31 @@ export default async function MarketDetailsPage({ params }: Props) {
         totalOptionBShares: marketData[6],
         resolved: marketData[7],
         version: "v1",
-        marketType: 0, // V1 markets are always paid markets
+        marketType: 0,
       };
-      console.log(`Market ${marketId} V1 data:`, market);
     } else {
-      // The migration fetcher may return either a raw contract tuple (MarketInfoV2ContractReturn)
-      // or a pre-parsed MarketV2 object. Handle both shapes.
       const raw = marketResult.market as any;
-
-      // If it's already parsed by migration (has options array), use it directly
-      if (raw && Array.isArray(raw.options)) {
-        // Defensive normalization: ensure optionShares exists and marketType is a safe number
-        market = {
-          question: raw.question,
-          description: raw.description,
-          endTime: raw.endTime,
-          category: raw.category,
-          optionCount: Number(raw.optionCount ?? raw.options.length ?? 0),
-          resolved: Boolean(raw.resolved),
-          disputed: Boolean(raw.disputed),
-          winningOptionId: Number(
-            raw.winningOptionId ?? raw.winningOption ?? 0
-          ),
-          creator: raw.creator,
-          earlyResolutionAllowed: Boolean(raw.earlyResolutionAllowed ?? false),
-          version: "v2",
-          options: raw.options,
-          optionShares: Array.isArray(raw.optionShares) ? raw.optionShares : [],
-          marketType:
-            Number((marketResult as any).marketType ?? raw.marketType ?? 0) ||
-            0,
-        };
-        console.log(`Market ${marketId} V2 pre-parsed data:`, market);
-      } else {
-        // Otherwise treat it as the raw contract tuple and fetch options ourselves
-        const marketData = raw as MarketInfoV2ContractReturn;
-
-        // Fetch all options for this V2 market
-        const optionCount = Number(marketData[4]);
-        const options: string[] = [];
-        const optionShares: bigint[] = [];
-
-        for (let i = 0; i < optionCount; i++) {
-          try {
-            const optionData = await publicClient.readContract({
-              address: V2contractAddress,
-              abi: V2contractAbi,
-              functionName: "getMarketOption",
-              args: [BigInt(marketId), BigInt(i)],
-            });
-
-            const [name, , totalShares] = optionData as [
-              string,
-              string,
-              bigint,
-              bigint,
-              bigint,
-              boolean
-            ];
-            options.push(name);
-            optionShares.push(totalShares);
-          } catch (error) {
-            console.error(`Error fetching option ${i}:`, error);
-            options.push(`Option ${i + 1}`);
-            optionShares.push(0n);
-          }
-        }
-
-        market = {
-          question: marketData[0],
-          description: marketData[1],
-          endTime: marketData[2],
-          category: marketData[3],
-          optionCount: optionCount,
-          resolved: marketData[5],
-          disputed: marketData[6],
-          winningOptionId: Number(marketData[7]),
-          creator: marketData[8],
-          earlyResolutionAllowed: marketData[9], // Add missing field
-          version: "v2",
-          options,
-          optionShares,
-          marketType: Number((marketResult as any).marketType ?? 0) || 0,
-        };
-        console.log(`Market ${marketId} V2 data:`, market);
-      }
+      const options: string[] = Array.isArray(raw?.options) ? raw.options : [];
+      market = {
+        question: raw.question,
+        description: raw.description,
+        endTime: raw.endTime,
+        category: raw.category,
+        optionCount: Number(raw.optionCount ?? options.length ?? 0),
+        resolved: Boolean(raw.resolved),
+        disputed: Boolean(raw.disputed),
+        winningOptionId: Number(raw.winningOptionId ?? 0),
+        outcome: Number(raw.winningOptionId ?? 0),
+        creator: raw.creator,
+        earlyResolutionAllowed: Boolean(raw.earlyResolutionAllowed ?? false),
+        version: "v2",
+        options,
+        optionShares: Array.isArray(raw.optionShares) ? raw.optionShares : [],
+        marketType:
+          Number((marketResult as any).marketType ?? raw.marketType ?? 0) || 0,
+      };
     }
 
-    // Use the market object built above, which already selects V2 if active
     return <MarketDetailsClient marketId={marketId} market={market} />;
   } catch (error) {
     console.error(`Failed to fetch market ${marketId}:`, error);

@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { MarketCard, Market } from "./marketCard";
 import { MarketV2Card } from "./market-v2-card";
 import { MarketCardSkeleton } from "./market-card-skeleton";
-import { MarketV2, Market as MarketV1Types } from "@/types/types";
+import {
+  MarketV2,
+  Market as MarketV1Types,
+  MarketType,
+  MarketCategory as MarketCategoryEnum,
+} from "@/types/types";
 import {
   V2contractAddress,
   V2contractAbi,
@@ -21,6 +26,8 @@ import {
   SelectValue,
 } from "./ui/select";
 import { getTotalMarketCount, fetchMarketData } from "@/lib/market-migration";
+import { subgraphClient } from "@/lib/subgraph";
+import { gql } from "graphql-request";
 import { CATEGORY_LABELS, MarketCategory } from "@/lib/constants";
 
 interface ValidatedMarketListProps {
@@ -70,32 +77,27 @@ function getMarketStatus(
   }
 }
 
-// Check if a V2 market is validated by attempting a purchase call
-async function checkMarketValidation(marketId: number): Promise<boolean> {
-  try {
-    // We'll try to simulate a purchase to see if it throws MarketNotValidated
-    // This is a workaround since there's no direct validation getter
-    // We use estimateContractGas with a dummy call to check if the market is validated
-    // Cast to `any` to avoid ABI-derived type errors (ABI varies by deployed contract version).
-    await (publicClient.estimateContractGas as any)({
-      address: V2contractAddress,
-      abi: V2contractAbi,
-      functionName: "buyShares" as any,
-      args: [BigInt(marketId), BigInt(0), BigInt(1), BigInt(1000000)], // Try to buy 1 share of option 0 with max price 1000000
-      account: "0x0000000000000000000000000000000000000001", // Dummy account
-    });
-    return true; // If no error, market is validated
-  } catch (error: any) {
-    // Check if the error is specifically MarketNotValidated
-    if (
-      error?.message?.includes("MarketNotValidated") ||
-      error?.shortMessage?.includes("MarketNotValidated") ||
-      error?.details?.includes("MarketNotValidated")
-    ) {
-      return false;
+// Subgraph-backed validation check via MarketValidated events
+async function getValidatedSet(limit: number): Promise<Set<string>> {
+  const QUERY = gql`
+    query Validations($first: Int!) {
+      marketValidateds(
+        first: $first
+        orderBy: blockTimestamp
+        orderDirection: desc
+      ) {
+        marketId
+      }
     }
-    // For other errors (like insufficient funds, invalid option, etc.), assume validated
-    return true;
+  `;
+  try {
+    const data = (await subgraphClient.request(QUERY, { first: limit })) as any;
+    return new Set<string>(
+      (data?.marketValidateds || []).map((v: any) => String(v.marketId))
+    );
+  } catch (e) {
+    console.error("Failed to fetch validations from subgraph", e);
+    return new Set<string>();
   }
 }
 
@@ -116,49 +118,122 @@ export function ValidatedMarketList({
         setLoading(true);
         setError(null);
 
-        // Get market counts from both contracts
-        const counts = await getTotalMarketCount();
-        console.log("Market counts:", counts);
+        // Fetch a subgraph slice of recent V2 markets and their validation/resolve/invalidated status
+        const first = 80;
+        const QUERY = gql`
+          query RecentMarkets($first: Int!) {
+            marketCreateds(
+              first: $first
+              orderBy: blockTimestamp
+              orderDirection: desc
+            ) {
+              marketId
+              question
+              options
+              endTime
+              category
+              marketType
+              creator
+              blockTimestamp
+            }
+            marketResolveds(
+              first: $first
+              orderBy: blockTimestamp
+              orderDirection: desc
+            ) {
+              marketId
+              winningOptionId
+            }
+            marketInvalidateds(
+              first: $first
+              orderBy: blockTimestamp
+              orderDirection: desc
+            ) {
+              marketId
+            }
+            marketValidateds(
+              first: $first
+              orderBy: blockTimestamp
+              orderDirection: desc
+            ) {
+              marketId
+            }
+          }
+        `;
 
-        // For now, prioritize V2 markets and show some V1 markets
-        const marketPromises: Promise<MarketWithVersion>[] = [];
+        let v2Items: MarketWithVersion[] = [];
+        try {
+          const data = (await subgraphClient.request(QUERY, { first })) as any;
 
-        // Fetch V2 markets (if any)
-        for (let i = 0; i < counts.v2Count; i++) {
-          marketPromises.push(
-            fetchMarketData(i).then(async ({ version, market }) => {
-              let validated = true; // V1 markets are always considered validated
-
-              if (version === "v2") {
-                // Check validation status for V2 markets
-                validated = await checkMarketValidation(i);
-              }
-
-              return {
-                id: i,
-                version,
-                validated,
-                market:
-                  version === "v2"
-                    ? (market as MarketV2)
-                    : convertV1Market(market as MarketV1Types),
-              };
-            })
+          const resolvedMap = new Map<string, string | null>();
+          for (const r of data?.marketResolveds || []) {
+            resolvedMap.set(String(r.marketId), r.winningOptionId ?? null);
+          }
+          const invalidatedSet = new Set<string>(
+            (data?.marketInvalidateds || []).map((i: any) => String(i.marketId))
           );
+          const validatedSet = new Set<string>(
+            (data?.marketValidateds || []).map((i: any) => String(i.marketId))
+          );
+
+          v2Items = (data?.marketCreateds || []).map((m: any) => {
+            const idNum = Number(m.marketId);
+            const options: any[] = Array.isArray(m.options) ? m.options : [];
+            const resolvedWinning = resolvedMap.get(String(m.marketId));
+            const v2: MarketV2 = {
+              question: String(m.question || ""),
+              description: "",
+              endTime: BigInt(m.endTime || 0),
+              category: Number(m.category || 0) as MarketCategoryEnum,
+              marketType: Number(m.marketType || 0) as MarketType,
+              optionCount: BigInt(options.length),
+              options: options as unknown as any,
+              resolved: resolvedMap.has(String(m.marketId)),
+              disputed: false,
+              validated: validatedSet.has(String(m.marketId)),
+              invalidated: invalidatedSet.has(String(m.marketId)),
+              winningOptionId: resolvedWinning ? BigInt(resolvedWinning) : 0n,
+              creator: String(
+                m.creator || "0x0000000000000000000000000000000000000000"
+              ),
+              createdAt: BigInt(m.blockTimestamp || 0),
+              adminInitialLiquidity: 0n,
+              userLiquidity: 0n,
+              totalVolume: 0n,
+              platformFeesCollected: 0n,
+              ammFeesCollected: 0n,
+              adminLiquidityClaimed: false,
+              ammLiquidityPool: 0n,
+              payoutIndex: 0n,
+              freeConfig: undefined,
+              ammConfig: undefined,
+              earlyResolutionAllowed: false,
+            };
+            return {
+              id: idNum,
+              version: "v2",
+              market: v2,
+              validated: v2.validated,
+            };
+          });
+        } catch (e) {
+          console.error("Subgraph V2 fetch failed in ValidatedMarketList", e);
         }
 
-        // Fetch recent V1 markets (up to 20) - these are always validated
+        // Now include a small slice of V1 markets using on-chain util (always validated)
+        const counts = await getTotalMarketCount();
         const v1MarketsToFetch = Math.min(counts.v1Count, 20);
+        const v1Promises: Promise<MarketWithVersion>[] = [];
         for (
           let i = Math.max(0, counts.v1Count - v1MarketsToFetch);
           i < counts.v1Count;
           i++
         ) {
-          marketPromises.push(
+          v1Promises.push(
             fetchMarketData(i).then(({ version, market }) => ({
               id: i,
               version,
-              validated: true, // V1 markets are always validated
+              validated: true,
               market:
                 version === "v2"
                   ? (market as MarketV2)
@@ -166,20 +241,17 @@ export function ValidatedMarketList({
             }))
           );
         }
-
-        const allMarkets = await Promise.allSettled(marketPromises);
-
-        const successfulMarkets = allMarkets
+        const v1Settled = await Promise.allSettled(v1Promises);
+        const v1Successful = v1Settled
           .filter(
-            (result): result is PromiseFulfilledResult<MarketWithVersion> =>
-              result.status === "fulfilled"
+            (r): r is PromiseFulfilledResult<MarketWithVersion> =>
+              r.status === "fulfilled"
           )
-          .map((result) => result.value);
+          .map((r) => r.value);
 
-        // Sort by ID descending (newest first)
-        successfulMarkets.sort((a, b) => b.id - a.id);
-
-        setMarkets(successfulMarkets);
+        const merged = [...v2Items, ...v1Successful];
+        merged.sort((a, b) => b.id - a.id);
+        setMarkets(merged);
       } catch (err) {
         console.error("Error fetching markets:", err);
         setError("Failed to load markets");
