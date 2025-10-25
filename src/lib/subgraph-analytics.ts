@@ -30,11 +30,7 @@ export class SubgraphAnalyticsService {
       );
 
       // Handle case where subgraph returns no data
-      if (
-        !data ||
-        !data.sharesPurchaseds ||
-        data.sharesPurchaseds.length === 0
-      ) {
+      if (!data || !data.tradeExecuteds || data.tradeExecuteds.length === 0) {
         console.log(
           `No subgraph data found for market ${marketId}, using fallback analytics`
         );
@@ -57,14 +53,12 @@ export class SubgraphAnalyticsService {
   }
 
   private processMarketData(data: MarketAnalyticsData): MarketAnalytics {
-    const events = data.sharesPurchaseds
-      .filter(
-        (event) =>
-          event && event.blockNumber && event.blockTimestamp && event.amount
-      )
+    const events = data.tradeExecuteds
+      .filter((event) => event && event.blockNumber && event.blockTimestamp)
       .map((event) => ({
-        ...event,
-        amount: parseFloat(event.amount || "0"),
+        optionId: event.optionId,
+        // Treat quantity as amount for volume analytics
+        amount: Number(event.quantity || "0"),
         timestamp: parseInt(event.blockTimestamp || "0") * 1000,
         blockNumber: BigInt(event.blockNumber || "0"),
       }));
@@ -99,7 +93,8 @@ export class SubgraphAnalyticsService {
       };
 
       const amount = event.amount || 0;
-      if (event.isOptionA) {
+      // Derive option A/B from optionId for two-option markets: 0 => A, else => B
+      if (event.optionId === "0") {
         existing.optionAVolume += amount;
       } else {
         existing.optionBVolume += amount;

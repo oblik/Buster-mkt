@@ -1,9 +1,149 @@
+import type { Address } from "viem";
+
+// Small helper to add a timeout to fetch so we don't hang the API route
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 3000
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+type SubgraphPortfolio = {
+  id: string; // address lowercased
+  totalWinnings: string; // BigInt as string
+  tradeCount: string; // BigInt as string
+};
+
+export type TopV2Winner = {
+  address: Address;
+  totalWinnings: bigint;
+  tradeCount: number;
+};
+
+/**
+ * Fetch top V2 winners from the subgraph. Returns empty array on any error.
+ */
+export async function fetchTopV2WinnersFromSubgraph(
+  limit = 100
+): Promise<TopV2Winner[]> {
+  const endpoint =
+    process.env.SUBGRAPH_V2_URL || process.env.NEXT_PUBLIC_SUBGRAPH_V2_URL;
+  if (!endpoint) return [];
+
+  // GraphQL query for top portfolios by totalWinnings desc
+  const query = `
+    query TopPortfolios($first: Int!) {
+      userPortfolios(first: $first, orderBy: totalWinnings, orderDirection: desc, where: { totalWinnings_gt: "0" }) {
+        id
+        totalWinnings
+        tradeCount
+      }
+    }
+  `;
+
+  try {
+    const res = await fetchWithTimeout(
+      endpoint,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          query,
+          variables: { first: Math.max(1, Math.min(1000, limit)) },
+        }),
+      },
+      3500
+    );
+
+    if (!res.ok) return [];
+    const body = await res.json();
+    if (body?.errors) return [];
+
+    const items: SubgraphPortfolio[] = body?.data?.userPortfolios || [];
+    if (!Array.isArray(items) || items.length === 0) return [];
+
+    return items.map((p) => ({
+      address: p.id as Address,
+      totalWinnings: BigInt(p.totalWinnings),
+      tradeCount: Number(p.tradeCount),
+    }));
+  } catch (_e) {
+    return [];
+  }
+}
+
+export type V2WinnerEntry = {
+  user: `0x${string}`;
+  totalWinnings: bigint;
+  voteCount: number;
+};
+
+type GraphUserPortfolio = {
+  id: string; // address
+  totalWinnings: string; // BigInt as string
+  tradeCount: string; // BigInt as string
+};
+
+export async function fetchV2TopWinnersFromSubgraph(
+  subgraphUrl: string,
+  topN = 50
+): Promise<V2WinnerEntry[]> {
+  const query = `
+    query TopWinners($first: Int!) {
+      userPortfolios(
+        first: $first
+        orderBy: totalWinnings
+        orderDirection: desc
+        where: { totalWinnings_gt: 0 }
+      ) {
+        id
+        totalWinnings
+        tradeCount
+      }
+    }
+  `;
+
+  const res = await fetch(subgraphUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query, variables: { first: topN } }),
+    // Small timeout safeguard via AbortController if needed (optional)
+  });
+
+  if (!res.ok) {
+    throw new Error(`Subgraph HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as {
+    data?: { userPortfolios: GraphUserPortfolio[] };
+    errors?: Array<{ message: string }>;
+  };
+  if (json.errors && json.errors.length) {
+    throw new Error(json.errors.map((e) => e.message).join("; "));
+  }
+  const portfolios = json.data?.userPortfolios ?? [];
+  return portfolios.map((p) => ({
+    user: p.id as `0x${string}`,
+    totalWinnings: BigInt(p.totalWinnings),
+    voteCount: Number(p.tradeCount),
+  }));
+}
 import { GraphQLClient, gql } from "graphql-request";
 
-// Your deployed subgraph URL
+// Your deployed subgraph URL (default to the new V2 subgraph)
 const SUBGRAPH_URL =
+  process.env.SUBGRAPH_URL ||
   process.env.NEXT_PUBLIC_SUBGRAPH_URL ||
-  "https://api.studio.thegraph.com/query/121109/policast/v0.0.1";
+  "https://api.studio.thegraph.com/query/121109/policast-v-2/v0.0.1";
 
 export const subgraphClient = new GraphQLClient(SUBGRAPH_URL);
 
@@ -130,32 +270,18 @@ export const GET_PRICE_HISTORY = gql`
 `;
 
 export const GET_MARKET_ANALYTICS = gql`
-  query GetMarketAnalytics($marketId: String!) {
-    sharesPurchaseds(
-      where: { market: $marketId }
+  query GetMarketAnalytics($marketId: BigInt!) {
+    tradeExecuteds(
+      where: { marketId: $marketId }
       first: 1000
-      orderBy: "blockNumber"
-      orderDirection: "asc"
+      orderBy: blockTimestamp
+      orderDirection: asc
     ) {
-      id
-      market {
-        id
-      }
       optionId
-      buyer
       price
-      amount
+      quantity
       blockNumber
       blockTimestamp
-      isOptionA
-    }
-    marketCreateds(where: { market: $marketId }) {
-      id
-      market {
-        id
-      }
-      creator
-      timestamp
     }
   }
 `;
@@ -329,7 +455,7 @@ export async function getMarketAnalytics(
   try {
     const data = await subgraphClient.request<MarketAnalyticsData>(
       GET_MARKET_ANALYTICS,
-      { marketId }
+      { marketId: BigInt(marketId) }
     );
 
     // Interactions: Return data
@@ -412,6 +538,11 @@ export interface MarketResolved {
 }
 
 export interface MarketAnalyticsData {
-  marketCreateds: any[];
-  sharesPurchaseds: any[];
+  tradeExecuteds: Array<{
+    optionId: string;
+    price: string;
+    quantity: string;
+    blockNumber: string;
+    blockTimestamp: string;
+  }>;
 }

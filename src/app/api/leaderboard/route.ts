@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 import { NeynarAPIClient } from "@neynar/nodejs-sdk";
 import NodeCache from "node-cache";
+import { fetchV2TopWinnersFromSubgraph } from "@/lib/subgraph";
 import {
   publicClient,
   contractAddress,
@@ -173,7 +174,7 @@ export async function GET() {
       entriesV1.push(...batch);
     }
 
-    // Fetch V2 leaderboard using allParticipants array and userPortfolios mapping
+    // Fetch V2 leaderboard (prefer subgraph, otherwise fall back on-chain)
     console.log("📊 Fetching V2 participants and portfolios...");
     const entriesV2: {
       user: Address;
@@ -182,93 +183,129 @@ export async function GET() {
     }[] = [];
 
     try {
-      const MAX_PARTICIPANTS = 500; // Safety limit
-      const addresses: Address[] = [];
-
-      // Step 1: Fetch participant addresses using multicall batches
-      let currentIndex = 0;
-      let hasMoreParticipants = true;
-
-      while (hasMoreParticipants && currentIndex < MAX_PARTICIPANTS) {
-        const batchContracts = Array.from(
-          { length: Math.min(V2_BATCH_SIZE, MAX_PARTICIPANTS - currentIndex) },
-          (_, i) => ({
-            address: V2contractAddress as Address,
-            abi: V2contractAbi,
-            functionName: "allParticipants" as const,
-            args: [BigInt(currentIndex + i)],
-          })
-        );
-
-        const batchResults = await withRetry(() =>
-          publicClient.multicall({
-            contracts: batchContracts,
-            allowFailure: true,
-          })
-        );
-
-        const validAddresses = batchResults
-          .filter((r) => r.status === "success" && r.result)
-          .map((r) => r.result as Address);
-
-        if (validAddresses.length === 0) {
-          hasMoreParticipants = false;
-          break;
-        }
-
-        addresses.push(...validAddresses);
-        currentIndex += V2_BATCH_SIZE;
-
-        // If we got fewer results than batch size, we've reached the end
-        if (validAddresses.length < V2_BATCH_SIZE) {
-          hasMoreParticipants = false;
-        }
-      }
-
-      console.log(`✅ Found ${addresses.length} V2 participant addresses`);
-
-      // Step 2: Fetch portfolios using multicall batches
-      for (let i = 0; i < addresses.length; i += V2_BATCH_SIZE) {
-        const batchAddresses = addresses.slice(i, i + V2_BATCH_SIZE);
-
-        const portfolioContracts = batchAddresses.map((addr) => ({
-          address: V2contractAddress as Address,
-          abi: V2contractAbi,
-          functionName: "userPortfolios" as const,
-          args: [addr],
-        }));
-
-        const portfolioResults = await withRetry(() =>
-          publicClient.multicall({
-            contracts: portfolioContracts,
-            allowFailure: true,
-          })
-        );
-
-        portfolioResults.forEach((result, idx) => {
-          if (result.status === "success" && result.result) {
-            const portfolio = result.result as [
-              bigint,
-              bigint,
-              bigint,
-              bigint,
-              bigint
-            ];
-            const totalWinnings = portfolio[1]; // index 1 = totalWinnings
-            const tradeCount = Number(portfolio[4]); // index 4 = tradeCount
-
-            if (totalWinnings > 0n) {
+      // Prefer subgraph for V2 if available
+      const subgraphUrl = process.env.SUBGRAPH_V2_URL;
+      if (subgraphUrl) {
+        try {
+          const topFromGraph = await fetchV2TopWinnersFromSubgraph(
+            subgraphUrl,
+            200
+          );
+          if (topFromGraph.length > 0) {
+            for (const w of topFromGraph) {
               entriesV2.push({
-                user: batchAddresses[idx],
-                totalWinnings,
-                voteCount: tradeCount,
+                user: w.user as Address,
+                totalWinnings: w.totalWinnings,
+                voteCount: w.voteCount,
               });
             }
+            console.log(
+              `✅ Loaded ${entriesV2.length} V2 winners from subgraph`
+            );
+            // If subgraph succeeded, skip on-chain fallback entirely
           }
-        });
+        } catch (sgErr) {
+          console.warn(
+            "⚠️ Subgraph V2 fetch failed or empty, falling back to on-chain:",
+            sgErr
+          );
+        }
       }
 
-      console.log(`✅ Fetched ${entriesV2.length} V2 leaderboard entries`);
+      // Only do on-chain fallback if we didn't get any entries from subgraph
+      if (entriesV2.length === 0) {
+        const MAX_PARTICIPANTS = 500; // Safety limit
+        const addresses: Address[] = [];
+
+        // Step 1: Fetch participant addresses using multicall batches
+        let currentIndex = 0;
+        let hasMoreParticipants = true;
+
+        while (hasMoreParticipants && currentIndex < MAX_PARTICIPANTS) {
+          const batchContracts = Array.from(
+            {
+              length: Math.min(V2_BATCH_SIZE, MAX_PARTICIPANTS - currentIndex),
+            },
+            (_, i) => ({
+              address: V2contractAddress as Address,
+              abi: V2contractAbi,
+              functionName: "allParticipants" as const,
+              args: [BigInt(currentIndex + i)],
+            })
+          );
+
+          const batchResults = await withRetry(() =>
+            publicClient.multicall({
+              contracts: batchContracts,
+              allowFailure: true,
+            })
+          );
+
+          const validAddresses = batchResults
+            .filter((r) => r.status === "success" && r.result)
+            .map((r) => r.result as Address);
+
+          if (validAddresses.length === 0) {
+            hasMoreParticipants = false;
+            break;
+          }
+
+          addresses.push(...validAddresses);
+          currentIndex += V2_BATCH_SIZE;
+
+          // If we got fewer results than batch size, we've reached the end
+          if (validAddresses.length < V2_BATCH_SIZE) {
+            hasMoreParticipants = false;
+          }
+        }
+
+        console.log(`✅ Found ${addresses.length} V2 participant addresses`);
+
+        // Step 2: Fetch portfolios using multicall batches
+        for (let i = 0; i < addresses.length; i += V2_BATCH_SIZE) {
+          const batchAddresses = addresses.slice(i, i + V2_BATCH_SIZE);
+
+          const portfolioContracts = batchAddresses.map((addr) => ({
+            address: V2contractAddress as Address,
+            abi: V2contractAbi,
+            functionName: "userPortfolios" as const,
+            args: [addr],
+          }));
+
+          const portfolioResults = await withRetry(() =>
+            publicClient.multicall({
+              contracts: portfolioContracts,
+              allowFailure: true,
+            })
+          );
+
+          portfolioResults.forEach((result, idx) => {
+            if (result.status === "success" && result.result) {
+              const portfolio = result.result as [
+                bigint,
+                bigint,
+                bigint,
+                bigint,
+                bigint
+              ];
+              const totalWinnings = portfolio[1]; // index 1 = totalWinnings
+              const tradeCount = Number(portfolio[4]); // index 4 = tradeCount
+
+              if (totalWinnings > 0n) {
+                entriesV2.push({
+                  user: batchAddresses[idx],
+                  totalWinnings,
+                  voteCount: tradeCount,
+                });
+              }
+            }
+          });
+        }
+
+        console.log(
+          `✅ Fetched ${entriesV2.length} V2 leaderboard entries (on-chain)`
+        );
+      }
     } catch (v2Error) {
       console.error("❌ V2 fetch error (continuing with V1 only):", v2Error);
       // Continue with V1 data only

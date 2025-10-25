@@ -245,3 +245,14 @@ type UserPortfolioUpdated @entity(immutable: true) {
   blockTimestamp: BigInt!
   transactionHash: Bytes!
 }
+
+# Aggregated per-user portfolio state for fast leaderboard queries
+type UserPortfolio @entity(immutable: false) {
+  id: Bytes! # user address
+  totalInvested: BigInt!
+  totalWinnings: BigInt!
+  unrealizedPnL: BigInt!
+  realizedPnL: BigInt!
+  tradeCount: BigInt!
+  updatedAt: BigInt!
+}
