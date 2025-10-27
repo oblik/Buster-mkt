@@ -143,7 +143,7 @@ import { GraphQLClient, gql } from "graphql-request";
 const SUBGRAPH_URL =
   process.env.SUBGRAPH_URL ||
   process.env.NEXT_PUBLIC_SUBGRAPH_URL ||
-  "https://api.studio.thegraph.com/query/121109/policast-v-2/v0.0.1";
+  "https://api.studio.thegraph.com/query/121109/policast-v-2/v0.0.5";
 
 export const subgraphClient = new GraphQLClient(SUBGRAPH_URL);
 
@@ -282,6 +282,26 @@ export const GET_MARKET_ANALYTICS = gql`
       quantity
       blockNumber
       blockTimestamp
+    }
+  }
+`;
+
+export const GET_DAILY_MARKET_STATS = gql`
+  query GetDailyMarketStats($marketId: BigInt!) {
+    dailyMarketStats(
+      where: { marketId: $marketId }
+      orderBy: dayStart
+      orderDirection: asc
+      first: 1000
+    ) {
+      id
+      marketId
+      dayStart
+      optionAPrice
+      optionBPrice
+      totalVolume
+      trades
+      updatedAt
     }
   }
 `;

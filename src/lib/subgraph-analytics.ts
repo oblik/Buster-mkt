@@ -1,6 +1,7 @@
 import {
   subgraphClient,
   GET_MARKET_ANALYTICS,
+  GET_DAILY_MARKET_STATS,
   MarketAnalyticsData,
 } from "@/lib/subgraph";
 import {
@@ -24,6 +25,22 @@ export class SubgraphAnalyticsService {
     }
 
     try {
+      // 1) Prefer daily snapshots if available
+      const daily = (await subgraphClient.request<any>(GET_DAILY_MARKET_STATS, {
+        marketId,
+      })) as any;
+
+      if (
+        daily &&
+        Array.isArray(daily.dailyMarketStats) &&
+        daily.dailyMarketStats.length > 0
+      ) {
+        const analytics = this.processDailyStats(daily.dailyMarketStats);
+        this.cache.set(marketId, { data: analytics, lastUpdated: Date.now() });
+        return analytics;
+      }
+
+      // 2) Fallback to raw trade events if snapshots not present yet
       const data = await subgraphClient.request<MarketAnalyticsData>(
         GET_MARKET_ANALYTICS,
         { marketId }
@@ -50,6 +67,74 @@ export class SubgraphAnalyticsService {
       console.error("Error fetching from subgraph:", error);
       return this.generateFallbackAnalytics();
     }
+  }
+
+  private processDailyStats(rows: any[]): MarketAnalytics {
+    // rows are ordered asc by dayStart
+    const priceHistory = [] as PriceHistoryData[];
+    const volumeHistory = [] as VolumeHistoryData[];
+
+    let totalVolume = 0;
+    let totalTrades = 0;
+
+    let lastA: number | undefined = undefined;
+    let lastB: number | undefined = undefined;
+
+    for (const r of rows) {
+      const ts = Number(r.dayStart) * 1000;
+      const a = r.optionAPrice ? Number(r.optionAPrice) / 1e18 : undefined;
+      const b = r.optionBPrice ? Number(r.optionBPrice) / 1e18 : undefined;
+
+      // Carry forward last known prices for smoother charts
+      if (a !== undefined) lastA = a;
+      if (b !== undefined) lastB = b;
+
+      // If only one leg present and binary, infer the other
+      const optionA =
+        lastA !== undefined
+          ? Math.max(0, Math.min(1, lastA))
+          : lastB !== undefined
+          ? Math.max(0, Math.min(1, 1 - lastB))
+          : 0.5;
+      const optionB =
+        lastB !== undefined
+          ? Math.max(0, Math.min(1, lastB))
+          : Math.max(0, Math.min(1, 1 - optionA));
+
+      const volume = Number(r.totalVolume || 0);
+      const trades = Number(r.trades || 0);
+      totalVolume += volume;
+      totalTrades += trades;
+
+      priceHistory.push({
+        date: new Date(ts).toISOString().split("T")[0],
+        timestamp: ts,
+        optionA: Math.round(optionA * 1000) / 1000,
+        optionB: Math.round(optionB * 1000) / 1000,
+        volume,
+        trades,
+      });
+
+      volumeHistory.push({
+        date: new Date(ts).toISOString().split("T")[0],
+        timestamp: ts,
+        volume,
+        trades,
+      });
+    }
+
+    const priceChange24h = this.calculatePriceChange(priceHistory);
+    const volumeChange24h = this.calculateVolumeChange(volumeHistory);
+
+    return {
+      priceHistory,
+      volumeHistory,
+      totalVolume,
+      totalTrades,
+      priceChange24h,
+      volumeChange24h,
+      lastUpdated: new Date().toISOString(),
+    };
   }
 
   private processMarketData(data: MarketAnalyticsData): MarketAnalytics {

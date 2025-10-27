@@ -10,6 +10,7 @@ dataSources:
     source:
       address: "0x5A10EF3049240b005717dCa2cf970e2cB371b596"
       abi: PolicastMarketV3
+      # Lowered startBlock so Studio indexer is already past this height and returns data immediately
       startBlock: 36283295
     mapping:
       kind: ethereum/events

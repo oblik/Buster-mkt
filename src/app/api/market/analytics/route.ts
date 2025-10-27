@@ -15,6 +15,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Validate marketId is a numeric string suitable for BigInt in subgraph queries
+    if (!/^\d+$/.test(marketId)) {
+      return NextResponse.json(
+        { error: "Market ID must be a numeric string" },
+        { status: 400 }
+      );
+    }
+
     // Get analytics from subgraph////
     const analytics = await subgraphAnalytics.getMarketAnalytics(marketId);
 
