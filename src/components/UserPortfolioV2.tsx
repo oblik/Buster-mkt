@@ -27,7 +27,9 @@ import {
   BarChart3,
   RefreshCw,
 } from "lucide-react";
-import { useUserPortfolio } from "@/hooks/useSubgraphData";
+import { subgraphPortfolio } from "@/lib/subgraph-portfolio";
+import { subgraphClient } from "@/lib/subgraph";
+import { gql } from "graphql-request";
 
 interface UserPortfolio {
   totalInvested: string;
@@ -100,11 +102,30 @@ export function UserPortfolioV2() {
   });
 
   // Get user portfolio from subgraph
-  const {
-    portfolio: portfolioData,
-    isLoading: isLoadingPortfolio,
-    refetch: refetchPortfolio,
-  } = useUserPortfolio(accountAddress!);
+  const [portfolioData, setPortfolioData] = useState<any>(null);
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(true);
+
+  useEffect(() => {
+    const fetchPortfolioFromSubgraph = async () => {
+      if (!accountAddress) {
+        setIsLoadingPortfolio(false);
+        return;
+      }
+
+      setIsLoadingPortfolio(true);
+      try {
+        const data = await subgraphPortfolio.getUserPortfolio(accountAddress);
+        setPortfolioData(data);
+      } catch (error) {
+        console.error("Error fetching portfolio from subgraph:", error);
+        setPortfolioData(null);
+      } finally {
+        setIsLoadingPortfolio(false);
+      }
+    };
+
+    fetchPortfolioFromSubgraph();
+  }, [accountAddress]);
 
   // Fetch accurate unrealized PnL from PolicastViews
   const { data: calculatedUnrealizedPnL } = (useReadContract as any)({
@@ -157,31 +178,32 @@ export function UserPortfolioV2() {
         }
       }
 
-      // Set portfolio basic data - convert bigint tradeCount to number
-      // Use calculated unrealized PnL from contract instead of stored value
+      // Set portfolio basic data from subgraph
+      // Use calculated unrealized PnL from contract if available, otherwise use subgraph value
       const portfolioInfo: UserPortfolio = {
-        totalInvested: portfolioData.totalInvested,
-        totalWinnings: portfolioData.totalWinnings,
+        totalInvested: portfolioData.totalInvested.toString(),
+        totalWinnings: portfolioData.totalWinnings.toString(),
         unrealizedPnL: calculatedUnrealizedPnL
           ? (calculatedUnrealizedPnL as bigint).toString()
-          : portfolioData.unrealizedPnL,
-        realizedPnL: portfolioData.realizedPnL,
-        tradeCount: Number(portfolioData.tradeCount), // Convert bigint to number
+          : portfolioData.unrealizedPnL.toString(),
+        realizedPnL: portfolioData.realizedPnL.toString(),
+        tradeCount: portfolioData.tradeCount,
       };
       setPortfolio(portfolioInfo);
 
-      // Get market count to know how many markets to check
-      const marketCount = (await (publicClient.readContract as any)({
-        address: V2contractAddress,
-        abi: V2contractAbi,
-        functionName: "getMarketCount" as any,
-      })) as unknown as bigint;
+      // Fetch user positions from subgraph
+      const userPositions = await subgraphPortfolio.getUserPositions(
+        accountAddress
+      );
 
-      // Fetch user positions across all markets
+      // For each market with positions, get current share balances and market info from on-chain
       const positions: MarketPosition[] = [];
-      for (let marketId = 0; marketId < Number(marketCount); marketId++) {
+
+      for (const position of userPositions) {
+        const marketId = Number(position.marketId);
+
         try {
-          // Get user shares in this market
+          // Get current user shares from contract (most accurate)
           const userShares = (await (publicClient.readContract as any)({
             address: V2contractAddress,
             abi: V2contractAbi,
@@ -189,79 +211,78 @@ export function UserPortfolioV2() {
             args: [BigInt(marketId), accountAddress],
           })) as unknown as bigint[];
 
-          // Skip if user has no shares in this market
+          // Skip if no current shares (might have sold all)
           if (!userShares || userShares.every((share) => share === 0n))
             continue;
 
-          // Get market info
-          const marketInfo = (await (publicClient.readContract as any)({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "getMarketInfo" as any,
-            args: [BigInt(marketId)],
-          })) as unknown as [
-            string,
-            string,
-            bigint,
-            number,
-            bigint,
-            boolean,
-            boolean,
-            number,
-            boolean,
-            bigint,
-            string,
-            boolean
-          ];
+          // Get market info from subgraph
+          const MARKET_QUERY = gql`
+            query GetMarketForPortfolio($marketId: String!) {
+              marketCreateds(where: { marketId: $marketId }) {
+                question
+                options
+              }
+              marketResolveds(where: { marketId: $marketId }) {
+                winningOptionId
+              }
+            }
+          `;
 
-          const [
-            question,
-            ,
-            ,
-            ,
-            optionCount,
-            resolved,
-            ,
-            ,
-            invalidated,
-            winningOptionId,
-            creator,
-          ] = marketInfo;
+          const marketData = (await subgraphClient.request(MARKET_QUERY, {
+            marketId: String(marketId),
+          })) as any;
 
-          // Get option names and current prices
-          const options: string[] = [];
+          const marketInfo = marketData?.marketCreateds?.[0];
+          const resolvedInfo = marketData?.marketResolveds?.[0];
+
+          if (!marketInfo) continue;
+
+          const options = marketInfo.options || [];
+          const resolved = !!resolvedInfo;
+          const winningOption = resolvedInfo
+            ? Number(resolvedInfo.winningOptionId)
+            : undefined;
+
+          // Get current prices from contract for accurate valuation
           const currentPrices: bigint[] = [];
-
-          for (let optionId = 0; optionId < Number(optionCount); optionId++) {
-            // Get option info
-            const optionInfo = (await (publicClient.readContract as any)({
-              address: V2contractAddress,
-              abi: V2contractAbi,
-              functionName: "getMarketOption" as any,
-              args: [BigInt(marketId), BigInt(optionId)],
-            })) as unknown as [string, string, bigint, bigint, bigint, boolean];
-
-            options.push(optionInfo[0]);
-            currentPrices.push(optionInfo[4]); // currentPrice
+          for (let optionId = 0; optionId < options.length; optionId++) {
+            try {
+              const optionInfo = (await (publicClient.readContract as any)({
+                address: V2contractAddress,
+                abi: V2contractAbi,
+                functionName: "getMarketOption" as any,
+                args: [BigInt(marketId), BigInt(optionId)],
+              })) as unknown as [
+                string,
+                string,
+                bigint,
+                bigint,
+                bigint,
+                boolean
+              ];
+              currentPrices.push(optionInfo[4]); // currentPrice
+            } catch {
+              currentPrices.push(0n);
+            }
           }
 
           // Calculate total position value
           let totalValue = 0n;
           for (let i = 0; i < userShares.length; i++) {
-            totalValue += (userShares[i] * currentPrices[i]) / 10n ** 18n; // Normalize price
+            totalValue += (userShares[i] * currentPrices[i]) / 10n ** 18n;
           }
 
           positions.push({
             marketId,
-            marketName: question,
+            marketName: marketInfo.question,
             options,
             userShares,
             currentPrices,
             totalValue,
-            invested: 0n, // Will calculate from trades
-            pnl: 0n, // Will calculate from trades
+            invested: 0n, // Calculated from trades if needed
+            pnl: 0n,
             resolved,
-            winningOption: resolved ? Number(winningOptionId) : undefined,
+            winningOption,
           });
         } catch (error) {
           console.error(
@@ -271,80 +292,34 @@ export function UserPortfolioV2() {
         }
       }
 
-      // Get recent trades
+      // Get recent trades from subgraph
       const trades: Trade[] = [];
-      const tradeCount = Number(portfolioInfo.tradeCount);
+      const userTrades = await subgraphPortfolio.getUserTrades(
+        accountAddress,
+        20,
+        0
+      ); // Last 20 trades
 
-      if (tradeCount > 0) {
-        const recentTradeCount = Math.min(tradeCount, 10); // Last 10 trades
+      for (const trade of userTrades) {
+        const marketId = Number(trade.marketId);
+        const optionId = Number(trade.optionId);
+        const isBuy =
+          trade.buyer.toLowerCase() === accountAddress.toLowerCase();
 
-        for (
-          let i = Math.max(0, tradeCount - recentTradeCount);
-          i < tradeCount;
-          i++
-        ) {
-          try {
-            const trade = (await publicClient.readContract({
-              address: V2contractAddress,
-              abi: V2contractAbi,
-              functionName: "userTradeHistory",
-              args: [accountAddress, BigInt(i)],
-            })) as unknown as [
-              bigint,
-              bigint,
-              string,
-              string,
-              bigint,
-              bigint,
-              bigint
-            ];
+        // Find market info
+        const position = positions.find((p) => p.marketId === marketId);
 
-            const [
-              marketId,
-              optionId,
-              buyer,
-              seller,
-              price,
-              quantity,
-              timestamp,
-            ] = trade;
-            const isBuy =
-              buyer && accountAddress
-                ? buyer.toLowerCase() === accountAddress.toLowerCase()
-                : false;
-
-            // Find market and option names
-            const position = positions.find(
-              (p) => p.marketId === Number(marketId)
-            );
-
-            trades.push({
-              marketId: Number(marketId),
-              optionId: Number(optionId),
-              isBuy,
-              quantity,
-              price,
-              timestamp,
-              marketName: position?.marketName || `Market ${marketId}`,
-              optionName:
-                position?.options[Number(optionId)] || `Option ${optionId}`,
-            });
-          } catch (error) {
-            console.error(`Error fetching trade ${i}:`, error);
-            // If we get a contract revert, it likely means we've reached the end of available trades
-            // Break the loop to avoid further unnecessary calls
-            if (
-              (error as any)?.message?.includes("reverted") ||
-              (error as any)?.message?.includes("ContractFunctionRevertedError")
-            ) {
-              break;
-            }
-          }
-        }
+        trades.push({
+          marketId,
+          optionId,
+          isBuy,
+          quantity: BigInt(trade.quantity),
+          price: BigInt(trade.price),
+          timestamp: BigInt(trade.blockTimestamp),
+          marketName: position?.marketName || `Market ${marketId}`,
+          optionName: position?.options[optionId] || `Option ${optionId}`,
+        });
       }
-
-      // Sort trades by timestamp (newest first)
-      trades.sort((a, b) => Number(b.timestamp - a.timestamp));
 
       setPositions(positions);
       setRecentTrades(trades);
@@ -517,7 +492,13 @@ export function UserPortfolioV2() {
             variant="outline"
             size="sm"
             onClick={() => {
-              refetchPortfolio();
+              // Clear subgraph cache
+              if (accountAddress) {
+                subgraphPortfolio.clearCache(accountAddress);
+              }
+              // Clear local cache
+              localStorage.removeItem(`${CACHE_KEY}_${accountAddress}`);
+              // Refetch data
               fetchPortfolioData();
             }}
             className="flex items-center gap-2"

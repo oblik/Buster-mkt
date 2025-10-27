@@ -306,6 +306,60 @@ export const GET_DAILY_MARKET_STATS = gql`
   }
 `;
 
+export const GET_USER_PORTFOLIO_DATA = gql`
+  query GetUserPortfolioData($userAddress: Bytes!) {
+    userPortfolio(id: $userAddress) {
+      id
+      totalInvested
+      totalWinnings
+      unrealizedPnL
+      realizedPnL
+      tradeCount
+      updatedAt
+    }
+  }
+`;
+
+export const GET_USER_TRADES = gql`
+  query GetUserTrades($userAddress: Bytes!, $first: Int!, $skip: Int!) {
+    tradeExecuteds(
+      where: { buyer: $userAddress }
+      first: $first
+      skip: $skip
+      orderBy: blockTimestamp
+      orderDirection: desc
+    ) {
+      id
+      marketId
+      optionId
+      buyer
+      seller
+      price
+      quantity
+      blockNumber
+      blockTimestamp
+      transactionHash
+    }
+  }
+`;
+
+export const GET_USER_POSITIONS = gql`
+  query GetUserPositions($userAddress: Bytes!) {
+    tradeExecuteds(
+      where: { buyer: $userAddress }
+      first: 1000
+      orderBy: blockTimestamp
+      orderDirection: desc
+    ) {
+      marketId
+      optionId
+      quantity
+      price
+      blockTimestamp
+    }
+  }
+`;
+
 // Production-ready functions (CEI: Check inputs, perform effect/query, handle interactions)
 export async function getMarkets(
   first: number,
