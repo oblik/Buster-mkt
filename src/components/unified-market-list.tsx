@@ -13,6 +13,7 @@ import {
 import { getTotalMarketCount, fetchMarketData } from "@/lib/market-migration";
 import { subgraphClient } from "@/lib/subgraph";
 import { gql } from "graphql-request";
+import { cachedSubgraphRequest } from "@/lib/subgraph-cache";
 
 interface UnifiedMarketListProps {
   filter: "active" | "pending" | "resolved";
@@ -108,9 +109,11 @@ export function UnifiedMarketList({ filter }: UnifiedMarketListProps) {
             `;
 
             const first = 60; // number of latest markets to list
-            const data = (await subgraphClient.request(QUERY, {
-              first,
-            })) as any;
+            const data = await cachedSubgraphRequest(
+              `unified-markets-v2-${first}`,
+              () => subgraphClient.request(QUERY, { first }) as Promise<any>,
+              60000 // 60 seconds
+            );
 
             const resolvedMap = new Map<string, string | null>();
             for (const r of data?.marketResolveds || []) {

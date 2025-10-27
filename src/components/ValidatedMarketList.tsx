@@ -165,11 +165,12 @@ export function ValidatedMarketList({
 
         let v2Items: MarketWithVersion[] = [];
         try {
-          // Use cached request with 30 second TTL to prevent rate limiting
+          // Use cached request with 60 second TTL to prevent rate limiting
+          // Cache key includes filter to avoid stale data
           const data = await cachedSubgraphRequest(
-            `markets-${filter}-${first}`,
+            `validated-markets-v2-${filter}-${first}`,
             () => subgraphClient.request(QUERY, { first }) as Promise<any>,
-            30000 // 30 seconds
+            60000 // 60 seconds - longer cache to reduce API calls
           );
 
           const resolvedMap = new Map<string, string | null>();

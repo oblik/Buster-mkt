@@ -69,12 +69,13 @@ class SubgraphCache {
 export const subgraphCache = new SubgraphCache();
 
 /**
- * Wrapper for subgraph requests with automatic caching
+ * Wrapper for subgraph requests with automatic caching and retry logic
  */
 export async function cachedSubgraphRequest<T>(
   key: string,
   fetcher: () => Promise<T>,
-  ttl?: number
+  ttl?: number,
+  retries = 3
 ): Promise<T> {
   // Check cache first
   const cached = subgraphCache.get<T>(key, ttl);
@@ -85,8 +86,40 @@ export async function cachedSubgraphRequest<T>(
 
   console.log(`[SubgraphCache] Cache miss for key: ${key}, fetching...`);
 
-  // Fetch and cache
-  const data = await fetcher();
-  subgraphCache.set(key, data);
-  return data;
+  // Fetch with retry logic for rate limiting
+  let lastError: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const data = await fetcher();
+      subgraphCache.set(key, data);
+      return data;
+    } catch (error: any) {
+      lastError = error;
+
+      // Check if it's a rate limit error (429)
+      const isRateLimit =
+        error?.response?.status === 429 ||
+        error?.message?.includes("429") ||
+        error?.toString()?.includes("429");
+
+      if (isRateLimit && i < retries - 1) {
+        // Exponential backoff: wait 2^i seconds
+        const waitTime = Math.pow(2, i) * 1000;
+        console.warn(
+          `[SubgraphCache] Rate limited (429) for key: ${key}, retrying in ${waitTime}ms (attempt ${
+            i + 1
+          }/${retries})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      // If not rate limit or last retry, throw
+      if (i === retries - 1) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
 }

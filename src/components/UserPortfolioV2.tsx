@@ -30,6 +30,7 @@ import {
 import { subgraphPortfolio } from "@/lib/subgraph-portfolio";
 import { subgraphClient } from "@/lib/subgraph";
 import { gql } from "graphql-request";
+import { cachedSubgraphRequest } from "@/lib/subgraph-cache";
 
 interface UserPortfolio {
   totalInvested: string;
@@ -228,9 +229,14 @@ export function UserPortfolioV2() {
             }
           `;
 
-          const marketData = (await subgraphClient.request(MARKET_QUERY, {
-            marketId: String(marketId),
-          })) as any;
+          const marketData = await cachedSubgraphRequest(
+            `portfolio-market-${marketId}`,
+            () =>
+              subgraphClient.request(MARKET_QUERY, {
+                marketId: String(marketId),
+              }) as Promise<any>,
+            60000 // 60 seconds
+          );
 
           const marketInfo = marketData?.marketCreateds?.[0];
           const resolvedInfo = marketData?.marketResolveds?.[0];

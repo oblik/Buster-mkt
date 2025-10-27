@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { subgraphClient } from "@/lib/subgraph";
 import { gql } from "graphql-request";
 import { useToast } from "@/components/ui/use-toast";
+import { cachedSubgraphRequest } from "@/lib/subgraph-cache";
 // No contract reads here; rely on subgraph and API-backed analytics
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -118,7 +119,11 @@ export function MarketAnalyticsV2() {
           }
         }
       `;
-      const resp = (await subgraphClient.request(QUERY, { first: 50 })) as any;
+      const resp = await cachedSubgraphRequest(
+        "analytics-markets-list-50",
+        () => subgraphClient.request(QUERY, { first: 50 }) as Promise<any>,
+        60000 // 60 seconds
+      );
       const resolvedSet = new Set(
         (resp?.marketResolveds || []).map((r: any) => String(r.marketId))
       );
@@ -172,9 +177,14 @@ export function MarketAnalyticsV2() {
             }
           }
         `;
-        const resp = (await subgraphClient.request(QUERY, {
-          marketId: String(selectedMarketId),
-        })) as any;
+        const resp = await cachedSubgraphRequest(
+          `analytics-market-${selectedMarketId}`,
+          () =>
+            subgraphClient.request(QUERY, {
+              marketId: String(selectedMarketId),
+            }) as Promise<any>,
+          60000 // 60 seconds
+        );
         const created = Array.isArray(resp?.marketCreateds)
           ? resp.marketCreateds[0]
           : null;

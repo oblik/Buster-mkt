@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { subgraphClient } from "@/lib/subgraph";
 import { gql } from "graphql-request";
+import { cachedSubgraphRequest } from "@/lib/subgraph-cache";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -151,7 +152,11 @@ export function PriceHistoryV2() {
           }
         }
       `;
-      const resp = (await subgraphClient.request(QUERY, { first: 50 })) as any;
+      const resp = await cachedSubgraphRequest(
+        "price-history-markets-list-50",
+        () => subgraphClient.request(QUERY, { first: 50 }) as Promise<any>,
+        60000 // 60 seconds
+      );
       const resolvedSet = new Set<string>(
         (resp?.marketResolveds || []).map((r: any) => String(r.marketId))
       );
@@ -210,9 +215,14 @@ export function PriceHistoryV2() {
           }
         }
       `;
-      const meta = (await subgraphClient.request(META_QUERY, {
-        marketId: String(marketId),
-      })) as any;
+      const meta = await cachedSubgraphRequest(
+        `price-history-market-meta-${marketId}`,
+        () =>
+          subgraphClient.request(META_QUERY, {
+            marketId: String(marketId),
+          }) as Promise<any>,
+        60000 // 60 seconds
+      );
       const created = Array.isArray(meta?.marketCreateds)
         ? meta.marketCreateds[0]
         : null;
