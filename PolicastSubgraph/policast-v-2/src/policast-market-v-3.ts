@@ -51,6 +51,7 @@ import {
   UnusedPrizePoolWithdrawn,
   UserPortfolioUpdated,
   UserPortfolio,
+  DailyMarketStat,
 } from "../generated/schema";
 
 export function handleAdminLiquidityWithdrawn(
@@ -383,6 +384,41 @@ export function handleTradeExecuted(event: TradeExecutedEvent): void {
   entity.transactionHash = event.transaction.hash;
 
   entity.save();
+
+  // Update daily snapshot aggregates
+  const SECONDS_PER_DAY = BigInt.fromI32(86400);
+  const ts = event.block.timestamp;
+  const dayStart = ts.minus(ts.mod(SECONDS_PER_DAY));
+  const id = event.params.marketId.toString() + "-" + dayStart.toString();
+
+  let snap = DailyMarketStat.load(id);
+  if (snap == null) {
+    snap = new DailyMarketStat(id);
+    snap.marketId = event.params.marketId;
+    snap.dayStart = dayStart;
+    snap.totalVolume = BigInt.fromI32(0);
+    snap.trades = BigInt.fromI32(0);
+    snap.optionAPrice = null;
+    snap.optionBPrice = null;
+  }
+
+  // Increment aggregates
+  snap.trades = snap.trades.plus(BigInt.fromI32(1));
+  snap.totalVolume = snap.totalVolume.plus(event.params.quantity);
+
+  // For binary markets, store last seen price per option for the day
+  if (event.params.optionId.equals(BigInt.fromI32(0))) {
+    snap.optionAPrice = event.params.price;
+  } else if (event.params.optionId.equals(BigInt.fromI32(1))) {
+    snap.optionBPrice = event.params.price;
+  }
+
+  // Update metadata
+  snap.blockNumber = event.block.number;
+  snap.blockTimestamp = event.block.timestamp;
+  snap.updatedAt = event.block.timestamp;
+
+  snap.save();
 }
 
 export function handleUnpaused(event: UnpausedEvent): void {

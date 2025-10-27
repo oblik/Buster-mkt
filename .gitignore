@@ -43,6 +43,7 @@ next-env.d.ts
 
 # subgraph
 /bustermkt/
+/PolicastSubgraph/
 
 #contract
 /contract

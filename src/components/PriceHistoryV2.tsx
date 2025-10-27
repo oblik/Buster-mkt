@@ -1,17 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useReadContract } from "wagmi";
 import { useToast } from "@/components/ui/use-toast";
-import {
-  publicClient,
-  V2contractAddress,
-  V2contractAbi,
-  tokenAddress as defaultTokenAddress,
-  tokenAbi as defaultTokenAbi,
-  PolicastViews,
-  PolicastViewsAbi,
-} from "@/constants/contract";
+import { subgraphClient } from "@/lib/subgraph";
+import { gql } from "graphql-request";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -96,44 +88,8 @@ export function PriceHistoryV2() {
   const [marketsList, setMarketsList] = useState<MarketListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
-  const [tokenSymbol, setTokenSymbol] = useState<string>("BSTR");
-  const [tokenDecimals, setTokenDecimals] = useState<number>(18);
-
-  // Get betting token info//
-  const { data: bettingTokenAddr } = (useReadContract as any)({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "bettingToken",
-  });
-
-  const tokenAddress = (bettingTokenAddr as any) || defaultTokenAddress;
-
-  // Get token metadata
-  const { data: symbolData } = useReadContract({
-    address: tokenAddress,
-    abi: defaultTokenAbi,
-    functionName: "symbol",
-    query: { enabled: !!tokenAddress },
-  });
-
-  const { data: decimalsData } = useReadContract({
-    address: tokenAddress,
-    abi: defaultTokenAbi,
-    functionName: "decimals",
-    query: { enabled: !!tokenAddress },
-  });
-
-  // Get market count
-  const { data: marketCount } = (useReadContract as any)({
-    address: V2contractAddress,
-    abi: V2contractAbi,
-    functionName: "marketCount",
-  });
-
-  useEffect(() => {
-    if (symbolData) setTokenSymbol(symbolData as string);
-    if (decimalsData) setTokenDecimals(Number(decimalsData));
-  }, [symbolData, decimalsData]);
+  const [tokenSymbol] = useState<string>("Buster");
+  const [tokenDecimals] = useState<number>(18);
 
   // Generate mock price history data (in real implementation, would fetch from contract events/external API)
   const generatePriceHistory = (
@@ -170,61 +126,45 @@ export function PriceHistoryV2() {
     return points;
   };
 
-  // Fetch markets list
+  // Fetch markets list from subgraph (latest 50 by blockTime)
   const fetchMarketsList = async () => {
-    if (!marketCount) return;
-
     setIsLoading(true);
     try {
-      const count = Number(marketCount);
-      const markets: MarketListItem[] = [];
-
-      for (let i = 0; i < Math.min(count, 20); i++) {
-        // Limit for performance
-        try {
-          const marketInfo = (await publicClient.readContract({
-            address: PolicastViews,
-            abi: PolicastViewsAbi,
-            functionName: "getMarketInfo",
-            args: [BigInt(i)],
-          })) as unknown as readonly any[];
-
-          const [question, , , , optionCount, resolved] = marketInfo;
-
-          // Calculate total volume from options since getMarketStats doesn't exist in V2
-          let totalVolume = 0n;
-          try {
-            for (let j = 0; j < Number(optionCount); j++) {
-              const optionInfo = (await publicClient.readContract({
-                address: V2contractAddress,
-                abi: V2contractAbi,
-                functionName: "getMarketOption",
-                args: [BigInt(i), BigInt(j)],
-              })) as [string, string, bigint, bigint, bigint, boolean];
-
-              totalVolume += optionInfo[3]; // Add option's totalVolume
-            }
-          } catch (error) {
-            console.error(`Error calculating volume for market ${i}:`, error);
+      const QUERY = gql`
+        query RecentMarkets($first: Int!) {
+          marketCreateds(
+            first: $first
+            orderBy: blockTimestamp
+            orderDirection: desc
+          ) {
+            marketId
+            question
+            options
           }
-
-          markets.push({
-            id: i,
-            question,
-            optionCount: Number(optionCount),
-            totalVolume,
-            resolved,
-          });
-        } catch (error) {
-          console.error(`Error fetching market ${i}:`, error);
+          marketResolveds(
+            first: $first
+            orderBy: blockTimestamp
+            orderDirection: desc
+          ) {
+            marketId
+            winningOptionId
+          }
         }
-      }
-
-      // Sort by total volume (descending)
-      markets.sort((a, b) => Number(b.totalVolume - a.totalVolume));
+      `;
+      const resp = (await subgraphClient.request(QUERY, { first: 50 })) as any;
+      const resolvedSet = new Set<string>(
+        (resp?.marketResolveds || []).map((r: any) => String(r.marketId))
+      );
+      const markets: MarketListItem[] = (resp?.marketCreateds || []).map(
+        (m: any) => ({
+          id: Number(m.marketId),
+          question: String(m.question || ""),
+          optionCount: Array.isArray(m.options) ? m.options.length : 0,
+          totalVolume: 0n,
+          resolved: resolvedSet.has(String(m.marketId)),
+        })
+      );
       setMarketsList(markets);
-
-      // Auto-select the first market if none selected
       if (markets.length > 0 && selectedMarketId === null) {
         setSelectedMarketId(markets[0].id);
       }
@@ -258,99 +198,128 @@ export function PriceHistoryV2() {
           return;
         }
       }
+      // Subgraph: get market meta (question, options, resolved)
+      const META_QUERY = gql`
+        query MarketMeta($marketId: String!) {
+          marketCreateds(where: { marketId: $marketId }) {
+            question
+            options
+          }
+          marketResolveds(where: { marketId: $marketId }) {
+            winningOptionId
+          }
+        }
+      `;
+      const meta = (await subgraphClient.request(META_QUERY, {
+        marketId: String(marketId),
+      })) as any;
+      const created = Array.isArray(meta?.marketCreateds)
+        ? meta.marketCreateds[0]
+        : null;
+      const resolvedRec = Array.isArray(meta?.marketResolveds)
+        ? meta.marketResolveds[0]
+        : null;
+      const question: string = created?.question || `Market #${marketId}`;
+      const optionLabels: string[] = Array.isArray(created?.options)
+        ? created.options
+        : [];
+      const resolved = !!resolvedRec;
+      const winningOptionId = resolvedRec
+        ? Number(resolvedRec.winningOptionId)
+        : undefined;
 
-      // Get market info
-      const marketInfo = (await publicClient.readContract({
-        address: PolicastViews,
-        abi: PolicastViewsAbi,
-        functionName: "getMarketInfo",
-        args: [BigInt(marketId)],
-      })) as unknown as readonly any[];
+      // Map timeRange to API-supported values
+      const mappedTimeRange = ["24h", "7d", "30d", "all"].includes(timeRange)
+        ? timeRange
+        : "24h";
 
-      const [
-        question,
-        ,
-        ,
-        ,
-        optionCount,
-        resolved,
-        ,
-        ,
-        invalidated,
-        winningOptionId,
-      ] = marketInfo;
+      // Load analytics via API (subgraph-backed)
+      const resp = await fetch(
+        `/api/market/analytics?marketId=${marketId}&timeRange=${mappedTimeRange}`
+      );
+      const analytics = resp.ok ? await resp.json() : null;
 
-      // Get options data
+      // Build options. Support binary (two options) for detailed stats using priceHistory optionA/optionB
       const options: OptionPriceData[] = [];
-      const timeRangeConfig = TIME_RANGES.find((r) => r.value === timeRange);
-      const hours = timeRangeConfig?.hours || 24;
+      const history = (analytics?.priceHistory ?? []) as Array<any>;
+      const deriveOptionSeries = (key: "optionA" | "optionB") =>
+        history
+          .map((p) => ({
+            timestamp: p.timestamp,
+            value: (p[key] ?? 0.5) * 100,
+          })) // convert to 0..100
+          .filter((p) => typeof p.value === "number");
 
-      for (let optionId = 0; optionId < Number(optionCount); optionId++) {
-        try {
-          const optionInfo = (await publicClient.readContract({
-            address: V2contractAddress,
-            abi: V2contractAbi,
-            functionName: "getMarketOption",
-            args: [BigInt(marketId), BigInt(optionId)],
-          })) as [string, string, bigint, bigint, bigint, boolean];
+      if (optionLabels.length === 2 && history.length > 0) {
+        const seriesA = deriveOptionSeries("optionA");
+        const seriesB = deriveOptionSeries("optionB");
 
-          const [name, , , totalVolume, currentPrice] = optionInfo;
-          const currentPriceNumber = Number(currentPrice) / 10 ** 18;
-
-          // Generate price history
-          const history = generatePriceHistory(currentPriceNumber, hours);
-
-          // Calculate 24h stats
-          const price24hAgo =
-            history.length > 0 ? history[0].prices[0] : currentPriceNumber;
-          const priceChange24h = currentPriceNumber - price24hAgo;
-          const priceChangePct24h =
-            price24hAgo > 0 ? (priceChange24h / price24hAgo) * 100 : 0;
-
-          const volume24h = history.reduce(
-            (sum, point) => sum + point.volume,
+        const buildOption = (optionId: number, name: string, series: any[]) => {
+          const current =
+            series.length > 0 ? series[series.length - 1].value : 0;
+          const past = series.length > 0 ? series[0].value : current;
+          const change = current - past;
+          const changePct = past > 0 ? (change / past) * 100 : 0;
+          const prices = series.map((s) => s.value);
+          const high = prices.length > 0 ? Math.max(...prices) : 0;
+          const low = prices.length > 0 ? Math.min(...prices) : 0;
+          const vol24h = (analytics?.volumeHistory ?? []).reduce(
+            (sum: number, v: any) => sum + (v.volume || 0),
             0
           );
-          const trades24h = history.reduce(
-            (sum, point) => sum + point.trades,
+          const trades24h = (analytics?.volumeHistory ?? []).reduce(
+            (sum: number, v: any) => sum + (v.trades || 0),
             0
           );
-
-          const prices = history.map((h) => h.prices[0]);
-          const high24h = Math.max(...prices);
-          const low24h = Math.min(...prices);
-
-          options.push({
+          const optHistory: PricePoint[] = series.map((s) => ({
+            timestamp: s.timestamp,
+            prices: [s.value],
+            volume: 0,
+            trades: 0,
+          }));
+          return {
             optionId,
             name,
-            currentPrice: currentPriceNumber,
-            priceChange24h,
-            priceChangePct24h,
-            volume24h,
+            currentPrice: current,
+            priceChange24h: change,
+            priceChangePct24h: changePct,
+            volume24h: vol24h,
             trades24h,
-            high24h,
-            low24h,
-            history,
-          });
-        } catch (error) {
-          console.error(`Error fetching option ${optionId}:`, error);
-        }
+            high24h: high,
+            low24h: low,
+            history: optHistory,
+          } as OptionPriceData;
+        };
+
+        options.push(buildOption(0, optionLabels[0] ?? "Option 1", seriesA));
+        options.push(buildOption(1, optionLabels[1] ?? "Option 2", seriesB));
+      } else {
+        // Fallback for multi-option markets (no detailed per-option analytics yet)
+        optionLabels.forEach((label, idx) =>
+          options.push({
+            optionId: idx,
+            name: String(label || `Option ${idx + 1}`),
+            currentPrice: 0,
+            priceChange24h: 0,
+            priceChangePct24h: 0,
+            volume24h: 0,
+            trades24h: 0,
+            high24h: 0,
+            low24h: 0,
+            history: [],
+          })
+        );
       }
 
-      const totalVolume24h = options.reduce(
-        (sum, opt) => sum + opt.volume24h,
-        0
-      );
-      const totalTrades24h = options.reduce(
-        (sum, opt) => sum + opt.trades24h,
-        0
-      );
+      const totalVolume24h = options.reduce((sum, o) => sum + o.volume24h, 0);
+      const totalTrades24h = options.reduce((sum, o) => sum + o.trades24h, 0);
 
       const priceData: MarketPriceData = {
         marketId,
         question,
         resolved,
-        winningOption: resolved ? Number(winningOptionId) : undefined,
+        winningOption:
+          typeof winningOptionId === "number" ? winningOptionId : undefined,
         options,
         totalVolume24h,
         totalTrades24h,
@@ -385,10 +354,9 @@ export function PriceHistoryV2() {
   };
 
   useEffect(() => {
-    if (marketCount) {
-      fetchMarketsList();
-    }
-  }, [marketCount]);
+    fetchMarketsList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (selectedMarketId !== null) {

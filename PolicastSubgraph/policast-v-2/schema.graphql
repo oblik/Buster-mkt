@@ -256,3 +256,20 @@ type UserPortfolio @entity(immutable: false) {
   tradeCount: BigInt!
   updatedAt: BigInt!
 }
+
+# Daily per-market snapshots driven by TradeExecuted events
+type DailyMarketStat @entity(immutable: false) {
+  id: ID! # `${marketId}-${dayStart}`
+  marketId: BigInt!
+  dayStart: BigInt! # unix start of day (UTC)
+  # For binary markets, last seen price per day (scaled 1e18 like contract price)
+  optionAPrice: BigInt
+  optionBPrice: BigInt
+  # Aggregates
+  totalVolume: BigInt! # raw token quantity (scaled to token decimals)
+  trades: BigInt!
+  # Last update metadata
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  updatedAt: BigInt!
+}
