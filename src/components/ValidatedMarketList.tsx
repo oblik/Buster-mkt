@@ -9,6 +9,7 @@ import {
   Market as MarketV1Types,
   MarketType,
   MarketCategory as MarketCategoryEnum,
+  MarketOption,
 } from "@/types/types";
 import {
   V2contractAddress,
@@ -178,16 +179,29 @@ export function ValidatedMarketList({
 
           v2Items = (data?.marketCreateds || []).map((m: any) => {
             const idNum = Number(m.marketId);
-            const options: any[] = Array.isArray(m.options) ? m.options : [];
+            const optionNames: string[] = Array.isArray(m.options)
+              ? m.options
+              : [];
             const resolvedWinning = resolvedMap.get(String(m.marketId));
+
+            // Convert string[] from subgraph to MarketOption[] expected by components
+            const marketOptions: MarketOption[] = optionNames.map((name) => ({
+              name: String(name),
+              description: "",
+              totalShares: 0n, // Will be fetched by market-v2-card via API
+              totalVolume: 0n,
+              currentPrice: 0n,
+              isActive: !resolvedMap.has(String(m.marketId)),
+            }));
+
             const v2: MarketV2 = {
               question: String(m.question || ""),
               description: "",
               endTime: BigInt(m.endTime || 0),
               category: Number(m.category || 0) as MarketCategoryEnum,
               marketType: Number(m.marketType || 0) as MarketType,
-              optionCount: BigInt(options.length),
-              options: options as unknown as any,
+              optionCount: BigInt(optionNames.length),
+              options: marketOptions,
               resolved: resolvedMap.has(String(m.marketId)),
               disputed: false,
               validated: validatedSet.has(String(m.marketId)),
