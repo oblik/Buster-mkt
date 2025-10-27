@@ -166,6 +166,13 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   // to a lightweight representation built from the passed-in `market` so the
   // progress UI and other consumers can render immediately.
   const displayOptions: MarketOption[] = (() => {
+    console.log(`[MarketV2Card] Market ${index} options state:`, {
+      apiOptions: options?.length || 0,
+      marketOptions: market.options?.length || 0,
+      marketOptionCount: market.optionCount,
+      rawMarketOptions: market.options,
+    });
+
     if (options && options.length > 0) return options;
     const count =
       Number(market.optionCount ?? market.options?.length ?? 0) || 0;

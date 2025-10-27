@@ -30,6 +30,7 @@ import { getTotalMarketCount, fetchMarketData } from "@/lib/market-migration";
 import { subgraphClient } from "@/lib/subgraph";
 import { gql } from "graphql-request";
 import { CATEGORY_LABELS, MarketCategory } from "@/lib/constants";
+import { cachedSubgraphRequest } from "@/lib/subgraph-cache";
 
 interface ValidatedMarketListProps {
   filter: "active" | "pending" | "resolved";
@@ -164,7 +165,12 @@ export function ValidatedMarketList({
 
         let v2Items: MarketWithVersion[] = [];
         try {
-          const data = (await subgraphClient.request(QUERY, { first })) as any;
+          // Use cached request with 30 second TTL to prevent rate limiting
+          const data = await cachedSubgraphRequest(
+            `markets-${filter}-${first}`,
+            () => subgraphClient.request(QUERY, { first }) as Promise<any>,
+            30000 // 30 seconds
+          );
 
           const resolvedMap = new Map<string, string | null>();
           for (const r of data?.marketResolveds || []) {
@@ -193,6 +199,12 @@ export function ValidatedMarketList({
               currentPrice: 0n,
               isActive: !resolvedMap.has(String(m.marketId)),
             }));
+
+            console.log(`[ValidatedMarketList] Market ${m.marketId}:`, {
+              optionNames,
+              marketOptionsCount: marketOptions.length,
+              rawOptions: m.options,
+            });
 
             const v2: MarketV2 = {
               question: String(m.question || ""),
