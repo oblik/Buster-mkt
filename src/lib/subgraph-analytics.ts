@@ -25,20 +25,55 @@ export class SubgraphAnalyticsService {
     }
 
     try {
+      // Query market info from subgraph
+      const marketInfoQuery = `
+        query GetMarketInfo($marketId: String!) {
+          marketCreateds(where: { marketId: $marketId }) {
+            question
+            options
+          }
+        }
+      `;
+      const marketInfo = await subgraphClient.request<any>(marketInfoQuery, {
+        marketId,
+      });
+      const marketCreated = marketInfo.marketCreateds[0];
+      const question = marketCreated?.question || "Unknown Question";
+      const optionCount = marketCreated?.options?.length || 2; // Default to 2 if not found
+
+      console.log(
+        `Market ${marketId} - Question: "${question}", Options: ${optionCount}`
+      );
+
       // 1) Prefer daily snapshots if available
       const daily = (await subgraphClient.request<any>(GET_DAILY_MARKET_STATS, {
         marketId,
       })) as any;
+
+      console.log(
+        `Daily stats for market ${marketId}:`,
+        daily?.dailyMarketStats?.length || 0,
+        "entries"
+      );
 
       if (
         daily &&
         Array.isArray(daily.dailyMarketStats) &&
         daily.dailyMarketStats.length > 0
       ) {
-        const analytics = this.processDailyStats(daily.dailyMarketStats);
+        console.log(`Using daily stats for market ${marketId}`);
+        const analytics = this.processDailyStats(
+          daily.dailyMarketStats,
+          question,
+          optionCount
+        );
         this.cache.set(marketId, { data: analytics, lastUpdated: Date.now() });
         return analytics;
       }
+
+      console.log(
+        `No daily stats found for market ${marketId}, falling back to trade events`
+      );
 
       // 2) Fallback to raw trade events if snapshots not present yet
       const data = await subgraphClient.request<MarketAnalyticsData>(
@@ -51,10 +86,10 @@ export class SubgraphAnalyticsService {
         console.log(
           `No subgraph data found for market ${marketId}, using fallback analytics`
         );
-        return this.generateFallbackAnalytics();
+        return this.generateFallbackAnalytics(question, optionCount);
       }
 
-      const analytics = this.processMarketData(data);
+      const analytics = this.processMarketData(data, question, optionCount);
 
       // Update cache
       this.cache.set(marketId, {
@@ -65,11 +100,15 @@ export class SubgraphAnalyticsService {
       return analytics;
     } catch (error) {
       console.error("Error fetching from subgraph:", error);
-      return this.generateFallbackAnalytics();
+      return this.generateFallbackAnalytics("Error fetching question", 2);
     }
   }
 
-  private processDailyStats(rows: any[]): MarketAnalytics {
+  private processDailyStats(
+    rows: any[],
+    question: string,
+    optionCount: number
+  ): MarketAnalytics {
     // rows are ordered asc by dayStart
     const priceHistory = [] as PriceHistoryData[];
     const volumeHistory = [] as VolumeHistoryData[];
@@ -77,43 +116,55 @@ export class SubgraphAnalyticsService {
     let totalVolume = 0;
     let totalTrades = 0;
 
-    let lastA: number | undefined = undefined;
-    let lastB: number | undefined = undefined;
+    const lastPrices: { [key: string]: number } = {};
 
     for (const r of rows) {
       const ts = Number(r.dayStart) * 1000;
-      const a = r.optionAPrice ? Number(r.optionAPrice) / 1e18 : undefined;
-      const b = r.optionBPrice ? Number(r.optionBPrice) / 1e18 : undefined;
 
-      // Carry forward last known prices for smoother charts
-      if (a !== undefined) lastA = a;
-      if (b !== undefined) lastB = b;
+      // Process prices for all options (up to optionCount)
+      const prices: { [key: string]: number } = {};
+      for (let i = 0; i < optionCount; i++) {
+        const priceField =
+          i === 0
+            ? "optionAPrice"
+            : i === 1
+            ? "optionBPrice"
+            : `option${i}Price`;
+        const priceValue = r[priceField];
+        if (priceValue) {
+          prices[`option${i}`] = Number(BigInt(priceValue)) / 1e18 / 100; // Convert from percentage * 1e18 to decimal
+        }
+      }
 
-      // If only one leg present and binary, infer the other
-      const optionA =
-        lastA !== undefined
-          ? Math.max(0, Math.min(1, lastA))
-          : lastB !== undefined
-          ? Math.max(0, Math.min(1, 1 - lastB))
-          : 0.5;
-      const optionB =
-        lastB !== undefined
-          ? Math.max(0, Math.min(1, lastB))
-          : Math.max(0, Math.min(1, 1 - optionA));
+      // Carry forward last known prices
+      Object.keys(prices).forEach((key) => {
+        lastPrices[key] = prices[key];
+      });
+
+      // For options without data, use last known or default
+      for (let i = 0; i < optionCount; i++) {
+        const key = `option${i}`;
+        if (!(key in prices) && lastPrices[key] !== undefined) {
+          prices[key] = lastPrices[key];
+        } else if (!(key in prices)) {
+          prices[key] = 1 / optionCount; // Default equal distribution
+        }
+      }
 
       const volume = Number(r.totalVolume || 0);
       const trades = Number(r.trades || 0);
       totalVolume += volume;
       totalTrades += trades;
 
-      priceHistory.push({
+      const priceData: PriceHistoryData = {
         date: new Date(ts).toISOString().split("T")[0],
         timestamp: ts,
-        optionA: Math.round(optionA * 1000) / 1000,
-        optionB: Math.round(optionB * 1000) / 1000,
         volume,
         trades,
-      });
+        ...prices,
+      };
+
+      priceHistory.push(priceData);
 
       volumeHistory.push({
         date: new Date(ts).toISOString().split("T")[0],
@@ -134,30 +185,45 @@ export class SubgraphAnalyticsService {
       priceChange24h,
       volumeChange24h,
       lastUpdated: new Date().toISOString(),
+      question,
+      optionCount,
     };
   }
 
-  private processMarketData(data: MarketAnalyticsData): MarketAnalytics {
+  private processMarketData(
+    data: MarketAnalyticsData,
+    question: string,
+    optionCount: number
+  ): MarketAnalytics {
+    console.log(
+      `Processing market data for ${data.tradeExecuteds.length} trade events`
+    );
     const events = data.tradeExecuteds
       .filter((event) => event && event.blockNumber && event.blockTimestamp)
       .map((event) => ({
         optionId: event.optionId,
-        // Treat quantity as amount for volume analytics
+        price: event.price
+          ? Number(BigInt(event.price)) / 1e18 / 100
+          : undefined,
         amount: Number(event.quantity || "0"),
         timestamp: parseInt(event.blockTimestamp || "0") * 1000,
         blockNumber: BigInt(event.blockNumber || "0"),
       }));
 
+    console.log(`Filtered to ${events.length} valid events`);
+    console.log(`Option IDs found:`, [
+      ...new Set(events.map((e) => e.optionId)),
+    ]);
+
     if (events.length === 0) {
-      return this.generateFallbackAnalytics();
+      return this.generateFallbackAnalytics(question, optionCount);
     }
 
     // Group events by day for price history
     const dailyData = new Map<
       string,
       {
-        optionAVolume: number;
-        optionBVolume: number;
+        prices: { [optionId: string]: number[] };
         totalVolume: number;
         trades: number;
         timestamp: number;
@@ -170,51 +236,59 @@ export class SubgraphAnalyticsService {
     events.forEach((event) => {
       const date = new Date(event.timestamp).toISOString().split("T")[0];
       const existing = dailyData.get(date) || {
-        optionAVolume: 0,
-        optionBVolume: 0,
+        prices: {},
         totalVolume: 0,
         trades: 0,
         timestamp: event.timestamp,
       };
 
       const amount = event.amount || 0;
-      // Derive option A/B from optionId for two-option markets: 0 => A, else => B
-      if (event.optionId === "0") {
-        existing.optionAVolume += amount;
-      } else {
-        existing.optionBVolume += amount;
-      }
-
       existing.totalVolume += amount;
       existing.trades += 1;
       totalVolume += amount;
       totalTrades += 1;
 
+      // Store price data for each option dynamically
+      if (event.price !== undefined) {
+        const optionKey = `option${event.optionId}`;
+        if (!existing.prices[optionKey]) {
+          existing.prices[optionKey] = [];
+        }
+        existing.prices[optionKey].push(event.price);
+      }
+
       dailyData.set(date, existing);
     });
-
-    // Calculate running totals for price percentages
-    let runningOptionAVolume = 0;
-    let runningOptionBVolume = 0;
 
     const priceHistory: PriceHistoryData[] = Array.from(dailyData.entries())
       .sort(([, a], [, b]) => a.timestamp - b.timestamp)
       .map(([date, data]) => {
-        runningOptionAVolume += data.optionAVolume;
-        runningOptionBVolume += data.optionBVolume;
-
-        const totalVol = runningOptionAVolume + runningOptionBVolume;
-        const optionA = totalVol > 0 ? runningOptionAVolume / totalVol : 0.5;
-        const optionB = totalVol > 0 ? runningOptionBVolume / totalVol : 0.5;
-
-        return {
+        const priceData: PriceHistoryData = {
           date,
           timestamp: data.timestamp,
-          optionA: Math.round(optionA * 1000) / 1000,
-          optionB: Math.round(optionB * 1000) / 1000,
           volume: data.totalVolume,
           trades: data.trades,
         };
+
+        // Calculate average price for each option dynamically
+        Object.keys(data.prices).forEach((optionKey) => {
+          const prices = data.prices[optionKey];
+          if (prices.length > 0) {
+            const avgPrice =
+              prices.reduce((sum, price) => sum + price, 0) / prices.length;
+            priceData[optionKey] = Math.round(avgPrice * 1000) / 1000;
+          }
+        });
+
+        // Ensure all options have a price (use default if missing)
+        for (let i = 0; i < optionCount; i++) {
+          const key = `option${i}`;
+          if (!(key in priceData)) {
+            priceData[key] = 1 / optionCount; // Default equal distribution
+          }
+        }
+
+        return priceData;
       });
 
     const volumeHistory: VolumeHistoryData[] = Array.from(dailyData.entries())
@@ -237,6 +311,8 @@ export class SubgraphAnalyticsService {
       priceChange24h,
       volumeChange24h,
       lastUpdated: new Date().toISOString(),
+      question,
+      optionCount,
     };
   }
 
@@ -246,9 +322,9 @@ export class SubgraphAnalyticsService {
     const latest = priceHistory[priceHistory.length - 1];
     const previous = priceHistory[priceHistory.length - 2];
 
-    // Handle cases where optionA might be undefined
-    const latestPrice = latest.optionA ?? 0.5;
-    const previousPrice = previous.optionA ?? 0.5;
+    // Use option0 as primary for change calculation
+    const latestPrice = latest.option0 ?? 0.5;
+    const previousPrice = previous.option0 ?? 0.5;
 
     return latestPrice - previousPrice;
   }
@@ -263,33 +339,35 @@ export class SubgraphAnalyticsService {
     return (latest.volume - previous.volume) / previous.volume;
   }
 
-  private generateFallbackAnalytics(): MarketAnalytics {
+  private generateFallbackAnalytics(
+    question: string,
+    optionCount: number
+  ): MarketAnalytics {
     const priceHistory: PriceHistoryData[] = [];
     const volumeHistory: VolumeHistoryData[] = [];
 
-    let currentPriceA = 0.5;
+    // Generate default prices for all options
+    const defaultPrices: { [key: string]: number } = {};
+    for (let i = 0; i < optionCount; i++) {
+      defaultPrices[`option${i}`] = 1 / optionCount;
+    }
 
     for (let i = 7; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
 
-      const volatility = (Math.random() - 0.5) * 0.1;
-      currentPriceA = Math.max(
-        0.05,
-        Math.min(0.95, currentPriceA + volatility)
-      );
-
       const volume = Math.floor(Math.random() * 1000) + 100;
       const trades = Math.floor(Math.random() * 50) + 10;
 
-      priceHistory.push({
+      const priceData: PriceHistoryData = {
         date: date.toISOString().split("T")[0],
         timestamp: date.getTime(),
-        optionA: Math.round(currentPriceA * 1000) / 1000,
-        optionB: Math.round((1 - currentPriceA) * 1000) / 1000,
         volume,
         trades,
-      });
+        ...defaultPrices,
+      };
+
+      priceHistory.push(priceData);
 
       volumeHistory.push({
         date: date.toISOString().split("T")[0],
@@ -307,6 +385,8 @@ export class SubgraphAnalyticsService {
       priceChange24h: (Math.random() - 0.5) * 0.2,
       volumeChange24h: (Math.random() - 0.5) * 2,
       lastUpdated: new Date().toISOString(),
+      question,
+      optionCount,
     };
   }
 

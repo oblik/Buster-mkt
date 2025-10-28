@@ -1,164 +1,353 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UserPortfolioV2 } from "@/components/UserPortfolioV2";
-import { MarketAnalyticsV2 } from "@/components/MarketAnalyticsV2";
-import { PriceHistoryV2 } from "@/components/PriceHistoryV2";
-
-import { MultiOptionPositions } from "@/components/MultiOptionPositions";
+import { useState, useEffect } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  BarChart3,
-  TrendingUp,
-  PieChart,
-  Activity,
-  User,
-  Target,
-} from "lucide-react";
-import { useAccount } from "wagmi";
-import { Badge } from "@/components/ui/badge";
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
-function AnalyticsContentInner() {
-  const { isConnected } = useAccount();
-  const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState("portfolio");
-
-  useEffect(() => {
-    const tabFromUrl = searchParams.get("tab") || "portfolio";
-    setActiveTab(tabFromUrl);
-  }, [searchParams]);
-
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    // Update URL without full page reload
-    const newUrl = new URL(window.location.href);
-    newUrl.searchParams.set("tab", value);
-    window.history.replaceState(null, "", newUrl.toString());
-  };
-
-  return (
-    <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl mb-20">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-2">
-              Analytics Dashboard
-            </h1>
-            <p className="text-gray-600 dark:text-gray-300">
-              Advanced analytics for Policast markets
-            </p>
-          </div>
-          <Badge variant="secondary" className="text-lg px-4 py-2">
-            Policast
-          </Badge>
-        </div>
-      </div>
-
-      <Tabs
-        value={activeTab}
-        onValueChange={handleTabChange}
-        className="w-full"
-      >
-        <TabsList className="flex flex-wrap justify-start gap-1 h-auto p-1 md:grid md:grid-cols-5 bg-muted mb-8">
-          <TabsTrigger
-            value="portfolio"
-            className="flex items-center gap-2 flex-1 min-w-[100px] md:min-w-0"
-          >
-            <User className="h-4 w-4" />
-            <span>Portfolio</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="positions"
-            className="flex items-center gap-2 flex-1 min-w-[100px] md:min-w-0"
-          >
-            <Target className="h-4 w-4" />
-            <span>Positions</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="markets"
-            className="flex items-center gap-2 flex-1 min-w-[100px] md:min-w-0"
-          >
-            <BarChart3 className="h-4 w-4" />
-            <span>Markets</span>
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Portfolio Analytics */}
-        <TabsContent value="portfolio" className="space-y-6">
-          {isConnected ? (
-            <UserPortfolioV2 />
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Portfolio Analytics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8">
-                  <User className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">
-                    Connect Your Wallet
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Connect your wallet to view your portfolio analytics,
-                    positions, and trading history.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Multi-Option Positions */}
-        <TabsContent value="positions" className="space-y-6">
-          <MultiOptionPositions />
-        </TabsContent>
-
-        {/* Market Analytics */}
-        <TabsContent value="markets" className="space-y-6">
-          <MarketAnalyticsV2 />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+interface PriceHistoryItem {
+  date: string;
+  timestamp: number;
+  volume: number;
+  trades: number;
+  [key: `option${number}`]: number;
 }
 
-// Component that needs Suspense for useSearchParams
-function AnalyticsContentWithSuspense() {
+interface VolumeHistoryItem {
+  date: string;
+  timestamp: number;
+  volume: number;
+  trades: number;
+}
+
+interface AnalyticsData {
+  priceHistory: PriceHistoryItem[];
+  volumeHistory: VolumeHistoryItem[];
+  totalVolume: number;
+  totalTrades: number;
+  priceChange24h: number;
+  volumeChange24h: number;
+  lastUpdated: string;
+  question: string;
+  optionCount: number;
+}
+
+const TIME_RANGES = [
+  { value: "1h", label: "1 Hour" },
+  { value: "6h", label: "6 Hours" },
+  { value: "24h", label: "24 Hours" },
+  { value: "7d", label: "7 Days" },
+  { value: "30d", label: "30 Days" },
+  { value: "all", label: "All Time" },
+];
+
+export function AnalyticsContent({ marketId }: { marketId: string }) {
+  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState("24h");
+
+  const fetchAnalytics = async (range: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/market/analytics?marketId=${marketId}&timeRange=${range}`
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const result: AnalyticsData = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "An unknown error occurred"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAnalytics(timeRange);
+  }, [timeRange]);
+
+  const handleTimeRangeChange = (range: string) => {
+    setTimeRange(range);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl">
+        <div className="space-y-6">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => (
+              <Skeleton key={i} className="h-48 w-full" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold text-red-600 mb-2">
+            Error Loading Analytics
+          </h2>
+          <p className="text-gray-600">{error}</p>
+          <button
+            onClick={() => fetchAnalytics(timeRange)}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">No Data Available</h2>
+          <p className="text-gray-600">Analytics data could not be loaded.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const chartData = data.priceHistory.map((item) => ({
+    timestamp: item.timestamp,
+    date: item.date,
+    ...Object.fromEntries(
+      Object.keys(item)
+        .filter((key) => key.startsWith("option"))
+        .map((key) => [
+          key,
+          ((item[key as keyof typeof item] as number) * 100).toFixed(2),
+        ])
+    ),
+  }));
+
+  // Get all option keys for dynamic rendering
+  const optionKeys = Object.keys(data.priceHistory[0] || {}).filter((key) =>
+    key.startsWith("option")
+  );
+
+  // Define colors for options (extend as needed)
+  const colors = [
+    "#8884d8",
+    "#82ca9d",
+    "#ffc658",
+    "#ff7300",
+    "#00ff00",
+    "#ff00ff",
+    "#00ffff",
+    "#ff0000",
+    "#0000ff",
+    "#ffff00",
+  ];
+
   return (
-    <Suspense
-      fallback={
-        <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl">
-          <div className="space-y-6">
-            <div className="h-24 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-            <div className="h-12 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[...Array(6)].map((_, i) => (
-                <div
-                  key={i}
-                  className="h-48 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse"
-                />
+    <div className="flex-grow container mx-auto p-4 md:p-6 max-w-7xl">
+      <div className="space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+          <h1 className="text-3xl font-bold mb-4">
+            Market Analytics (Market ID: {marketId})
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+            Question: {data.question}
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+            Number of Options: {data.optionCount}
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+            Last updated: {new Date(data.lastUpdated).toLocaleString()}
+          </p>
+
+          {/* Time Range Filters */}
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold mb-3">Time Range</h2>
+            <div className="flex flex-wrap gap-2">
+              {TIME_RANGES.map((range) => (
+                <button
+                  key={range.value}
+                  onClick={() => handleTimeRangeChange(range.value)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    timeRange === range.value
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                  }`}
+                >
+                  {range.label}
+                </button>
               ))}
             </div>
           </div>
         </div>
-      }
-    >
-      <AnalyticsContentInner />
-    </Suspense>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Total Volume</h3>
+            <p className="text-2xl font-bold text-blue-600">
+              {(data.totalVolume / 1e18).toFixed(2)} Buster
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Total Trades</h3>
+            <p className="text-2xl font-bold text-green-600">
+              {data.totalTrades}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Price Change (24h)</h3>
+            <p
+              className={`text-2xl font-bold ${
+                data.priceChange24h >= 0 ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {data.priceChange24h >= 0 ? "+" : ""}
+              {(data.priceChange24h * 100).toFixed(2)}%
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Volume Change (24h)</h3>
+            <p
+              className={`text-2xl font-bold ${
+                data.volumeChange24h >= 0 ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {data.volumeChange24h >= 0 ? "+" : ""}
+              {(data.volumeChange24h * 100).toFixed(2)}%
+            </p>
+          </div>
+        </div>
+
+        {/* Price Chart */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+          <h2 className="text-xl font-semibold mb-4">Option Price Chart</h2>
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 12 }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  label={{
+                    value: "Price (%)",
+                    angle: -90,
+                    position: "insideLeft",
+                  }}
+                  domain={[0, 100]}
+                  tick={{ fontSize: 12 }}
+                />
+                <Tooltip
+                  labelFormatter={(value) => `Date: ${value}`}
+                  formatter={(value, name) => [
+                    `${value}%`,
+                    String(name).replace("option", "Option "),
+                  ]}
+                />
+                <Legend />
+                {optionKeys.map((key, index) => (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    stroke={colors[index % colors.length]}
+                    strokeWidth={2}
+                    name={key.replace("option", "Option ")}
+                    dot={{ r: 3 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-64">
+              <p className="text-gray-500">
+                No price data available for the selected time range.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">Price History</h2>
+            {data.priceHistory.length > 0 ? (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {data.priceHistory.map((item, index) => (
+                  <div
+                    key={index}
+                    className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700"
+                  >
+                    <span className="text-sm font-medium">{item.date}</span>
+                    <div className="text-right">
+                      {optionKeys.map((key) => (
+                        <div key={key} className="text-sm">
+                          {key.replace("option", "Option ")}:{" "}
+                          {(
+                            (item[key as keyof typeof item] as number) * 100
+                          ).toFixed(1)}
+                          %
+                        </div>
+                      ))}
+                      <div className="text-xs text-gray-500">
+                        Trades: {item.trades}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500">No price history data available.</p>
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">Volume History</h2>
+            {data.volumeHistory.length > 0 ? (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {data.volumeHistory.map((item, index) => (
+                  <div
+                    key={index}
+                    className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700"
+                  >
+                    <span className="text-sm font-medium">{item.date}</span>
+                    <div className="text-right">
+                      <div className="text-sm">
+                        Volume: {(item.volume / 1e18).toFixed(2)} Buster
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Trades: {item.trades}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500">No volume history data available.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
-
-// Export with dynamic import and no SSR
-export const AnalyticsContent = dynamic(
-  () => Promise.resolve(AnalyticsContentWithSuspense),
-  {
-    ssr: false,
-  }
-);

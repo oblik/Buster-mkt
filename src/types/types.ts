@@ -214,13 +214,6 @@ export interface UserWinnings {
   winningOptionId: number;
 }
 
-export interface VolumeHistoryData {
-  date: string;
-  timestamp: number;
-  volume: number;
-  trades: number;
-}
-
 export interface MarketAnalytics {
   priceHistory: PriceHistoryData[];
   volumeHistory: VolumeHistoryData[];
@@ -229,6 +222,15 @@ export interface MarketAnalytics {
   priceChange24h: number;
   volumeChange24h: number;
   lastUpdated: string;
+  question: string;
+  optionCount: number;
+}
+
+export interface VolumeHistoryData {
+  date: string;
+  timestamp: number;
+  volume: number;
+  trades: number;
 }
 
 export interface MarketStats {

@@ -21,8 +21,8 @@ import { MarketSharesDisplay } from "@/components/market-shares-display";
 
 import { UrlPreview } from "@/components/url-preview";
 import { MarketContext } from "@/components/market-context";
-import { MarketChart } from "@/components/market-chart";
 import { CommentSystem } from "@/components/CommentSystem";
+import { AnalyticsContent } from "@/app/analytics/components/AnalyticsContent";
 import { MarketV2, MarketOption, MarketCategory } from "@/types/types";
 import { useV3UserRoles } from "@/hooks/useV3UserRoles";
 import { FreeTokenClaimButton } from "@/components/FreeTokenClaimButton";
@@ -590,15 +590,7 @@ export function MarketDetailsClient({
 
           {/* Market Analytics Charts - Hidden on mobile */}
           <div className="hidden md:block mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
-            <MarketChart
-              marketId={marketId}
-              market={{
-                optionA: market.optionA,
-                optionB: market.optionB,
-                options: market.options,
-                version: market.version,
-              }}
-            />
+            <AnalyticsContent marketId={marketId} />
           </div>
 
           {/* Comment System */}

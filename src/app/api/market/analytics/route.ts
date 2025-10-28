@@ -26,31 +26,77 @@ export async function GET(request: NextRequest) {
     // Get analytics from subgraph////
     const analytics = await subgraphAnalytics.getMarketAnalytics(marketId);
 
-    // Filter data based on time range
-    const now = Date.now();
-    let cutoffTime: number;
+    // Sample data at regular intervals based on time range
+    let timeWindow: number;
+    let sampleInterval: number;
 
     switch (timeRange) {
+      case "1h":
+        timeWindow = 1 * 60 * 60 * 1000; // 1 hour
+        sampleInterval = 5 * 60 * 1000; // 5 minutes
+        break;
+      case "6h":
+        timeWindow = 6 * 60 * 60 * 1000; // 6 hours
+        sampleInterval = 30 * 60 * 1000; // 30 minutes
+        break;
       case "24h":
-        cutoffTime = now - 24 * 60 * 60 * 1000;
+        timeWindow = 24 * 60 * 60 * 1000; // 24 hours
+        sampleInterval = 2 * 60 * 60 * 1000; // 2 hours
         break;
       case "7d":
-        cutoffTime = now - 7 * 24 * 60 * 60 * 1000;
+        timeWindow = 7 * 24 * 60 * 60 * 1000; // 7 days
+        sampleInterval = 24 * 60 * 60 * 1000; // 24 hours
         break;
       case "30d":
-        cutoffTime = now - 30 * 24 * 60 * 60 * 1000;
+        timeWindow = 30 * 24 * 60 * 60 * 1000; // 30 days
+        sampleInterval = 24 * 60 * 60 * 1000; // 24 hours
         break;
       default:
-        cutoffTime = 0; // 'all'
+        timeWindow = 0; // 'all' - no time window filter
+        sampleInterval = 0; // 'all' - no sampling
     }
+
+    const sampleData = (data: any[], timeWindow: number, interval: number) => {
+      if (timeWindow === 0 && interval === 0) return data; // Return all data for 'all' range
+
+      const now = Date.now();
+      const cutoffTime = now - timeWindow;
+
+      // First filter by time window
+      const filteredData =
+        timeWindow > 0
+          ? data.filter((item) => item.timestamp >= cutoffTime)
+          : data;
+
+      if (interval === 0) return filteredData; // No sampling needed
+
+      // Then sample at regular intervals
+      const sampled: any[] = [];
+      let lastSampleTime = -Infinity;
+
+      for (const item of filteredData.sort(
+        (a, b) => a.timestamp - b.timestamp
+      )) {
+        if (item.timestamp - lastSampleTime >= interval) {
+          sampled.push(item);
+          lastSampleTime = item.timestamp;
+        }
+      }
+
+      return sampled;
+    };
 
     const filteredAnalytics: MarketAnalytics = {
       ...analytics,
-      priceHistory: analytics.priceHistory.filter(
-        (p) => p.timestamp >= cutoffTime
+      priceHistory: sampleData(
+        analytics.priceHistory,
+        timeWindow,
+        sampleInterval
       ),
-      volumeHistory: analytics.volumeHistory.filter(
-        (v) => v.timestamp >= cutoffTime
+      volumeHistory: sampleData(
+        analytics.volumeHistory,
+        timeWindow,
+        sampleInterval
       ),
     };
 

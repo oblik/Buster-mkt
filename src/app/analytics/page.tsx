@@ -23,7 +23,7 @@ function AnalyticsPageContent() {
           </div>
         }
       >
-        <AnalyticsContent />
+        <AnalyticsContent marketId={""} />
       </Suspense>
 
       <Footer />
