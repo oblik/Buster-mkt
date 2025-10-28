@@ -141,9 +141,16 @@ import { GraphQLClient, gql } from "graphql-request";
 
 // Your deployed subgraph URL (default to the new V2 subgraph)
 const SUBGRAPH_URL =
+  process.env.NEXT_PUBLIC_SUBGRAPH_URL ||
   "https://gateway.thegraph.com/api/subgraphs/id/AGSATzWC7u4iZ3dwKu3KPuXDWgY4KGmCo2XZh4KLqseQ";
+const SUBGRAPH_API_KEY = process.env.NEXT_PUBLIC_SUBGRAPH_API_KEY;
 
-export const subgraphClient = new GraphQLClient(SUBGRAPH_URL);
+const headers: Record<string, string> = {};
+if (SUBGRAPH_API_KEY) {
+  headers.Authorization = `Bearer ${SUBGRAPH_API_KEY}`;
+}
+
+export const subgraphClient = new GraphQLClient(SUBGRAPH_URL, { headers });
 
 // GraphQL queries for V3 entities (using gql for better parsing)
 export const GET_MARKETS = gql`
