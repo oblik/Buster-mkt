@@ -157,18 +157,9 @@ interface MarketV2CardProps {
 }
 
 export function MarketV2Card({ index, market }: MarketV2CardProps) {
-  // Derive real marketId from market prop (fallback to index if missing)
-  const marketIdStr = (() => {
-    if (typeof (market as any).marketId === "string")
-      return (market as any).marketId;
-    if (typeof (market as any).marketId === "number")
-      return String((market as any).marketId);
-    if (typeof (market as any).marketId === "bigint")
-      return (market as any).marketId.toString();
-    return String(index); // fallback
-  })();
-
-  const marketIdNum = Number(marketIdStr);
+  // index is already the marketId passed from parent
+  const marketIdStr = String(index);
+  const marketIdNum = index;
 
   const { address } = useAccount();
   const [commentCount, setCommentCount] = useState<number>(0);
@@ -628,7 +619,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
         {/* Free Market Claim Status */}
         <FreeMarketClaimStatus
-          marketId={index}
+          marketId={marketIdNum}
           className="mt-3"
           marketType={derivedMarketType}
         />
@@ -650,7 +641,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           )}
         {displayOptions.length > 0 && (
           <MultiOptionProgress
-            marketId={index}
+            marketId={marketIdNum}
             options={displayOptions}
             probabilities={probabilities} // New prop
             totalVolume={totalVolume}
