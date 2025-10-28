@@ -1436,9 +1436,7 @@ export function MarketV2BuyInterface({
                     <span className="font-medium">
                       {(
                         Number(
-                          formatPrice(
-                            market.options[selectedOptionId!]?.currentPrice
-                          )
+                          formatPrice(currentOptionPrice) // <-- Use real-time price
                         ) * 100
                       ).toFixed(1)}
                       Buster
