@@ -35,7 +35,7 @@ export async function fetchTopV2WinnersFromSubgraph(
   limit = 100
 ): Promise<TopV2Winner[]> {
   const endpoint =
-    "https://api.studio.thegraph.com/query/121109/policast-v-2/v0.0.5";
+    "https://gateway.thegraph.com/api/subgraphs/id/AGSATzWC7u4iZ3dwKu3KPuXDWgY4KGmCo2XZh4KLqseQ";
   if (!endpoint) return [];
 
   // GraphQL query for top portfolios by totalWinnings desc
@@ -141,7 +141,7 @@ import { GraphQLClient, gql } from "graphql-request";
 
 // Your deployed subgraph URL (default to the new V2 subgraph)
 const SUBGRAPH_URL =
-  "https://api.studio.thegraph.com/query/121109/policast-v-2/v0.0.5";
+  "https://gateway.thegraph.com/api/subgraphs/id/AGSATzWC7u4iZ3dwKu3KPuXDWgY4KGmCo2XZh4KLqseQ";
 
 export const subgraphClient = new GraphQLClient(SUBGRAPH_URL);
 
