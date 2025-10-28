@@ -3,6 +3,8 @@ import {
   publicClient,
   V2contractAddress,
   V2contractAbi,
+  PolicastViews,
+  PolicastViewsAbi,
 } from "@/constants/contract";
 
 export async function GET(
@@ -18,8 +20,8 @@ export async function GET(
 
     // Get market info from contract
     const rawMarketInfo = (await (publicClient.readContract as any)({
-      address: V2contractAddress,
-      abi: V2contractAbi,
+      address: PolicastViews,
+      abi: PolicastViewsAbi,
       functionName: "getMarketInfo",
       args: [BigInt(marketId)],
     })) as unknown;
