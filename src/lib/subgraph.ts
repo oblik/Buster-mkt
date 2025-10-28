@@ -38,6 +38,13 @@ export async function fetchTopV2WinnersFromSubgraph(
     "https://gateway.thegraph.com/api/subgraphs/id/AGSATzWC7u4iZ3dwKu3KPuXDWgY4KGmCo2XZh4KLqseQ";
   if (!endpoint) return [];
 
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (SUBGRAPH_API_KEY) {
+    headers.Authorization = `Bearer ${SUBGRAPH_API_KEY}`;
+  }
+
   // GraphQL query for top portfolios by totalWinnings desc
   const query = `
     query TopPortfolios($first: Int!) {
@@ -54,7 +61,7 @@ export async function fetchTopV2WinnersFromSubgraph(
       endpoint,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({
           query,
           variables: { first: Math.max(1, Math.min(1000, limit)) },
@@ -96,6 +103,13 @@ export async function fetchV2TopWinnersFromSubgraph(
   subgraphUrl: string,
   topN = 50
 ): Promise<V2WinnerEntry[]> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (SUBGRAPH_API_KEY) {
+    headers.Authorization = `Bearer ${SUBGRAPH_API_KEY}`;
+  }
+
   const query = `
     query TopWinners($first: Int!) {
       userPortfolios(
@@ -113,11 +127,8 @@ export async function fetchV2TopWinnersFromSubgraph(
 
   const res = await fetch(subgraphUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({ query, variables: { first: topN } }),
-    // Small timeout safeguard via AbortController if needed (optional)
   });
 
   if (!res.ok) {

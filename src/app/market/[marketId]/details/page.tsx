@@ -167,7 +167,6 @@ export default async function MarketDetailsPage({ params }: Props) {
         marketCreateds(where: { marketId: $marketId }) {
           marketId
           question
-          description
           options
           endTime
           category
@@ -198,7 +197,7 @@ export default async function MarketDetailsPage({ params }: Props) {
         : null;
       const market = {
         question: String(created.question || ""),
-        description: String(created.description || ""),
+        description: "",
         endTime: BigInt(created.endTime || 0),
         category: Number(created.category || 0),
         optionCount: Number((created.options || []).length),
