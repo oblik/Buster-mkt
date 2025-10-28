@@ -51,8 +51,8 @@ export function Footer() {
       setShowInfo(false);
     }
 
-    // For all home page tabs (active, ended, leaderboard, profile, admin), update URL without full reload
-    if (hrefBase === "/" && tabValue) {
+    // For home page tabs, if we're already on home, update URL and dispatch event
+    if (hrefBase === "/" && tabValue && pathname === "/") {
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.set("tab", tabValue);
       window.history.pushState(null, "", newUrl.toString());
@@ -63,8 +63,10 @@ export function Footer() {
         new CustomEvent("tabChange", { detail: { tab: tabValue } })
       );
     } else {
-      // For any other navigation, use normal routing
-      router.push(hrefBase);
+      // For any other navigation or if not on home, use normal routing
+      router.push(
+        hrefBase === "/" && tabValue ? `/?tab=${tabValue}` : hrefBase
+      );
     }
   };
 
