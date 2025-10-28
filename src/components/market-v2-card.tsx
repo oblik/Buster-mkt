@@ -157,6 +157,19 @@ interface MarketV2CardProps {
 }
 
 export function MarketV2Card({ index, market }: MarketV2CardProps) {
+  // Derive real marketId from market prop (fallback to index if missing)
+  const marketIdStr = (() => {
+    if (typeof (market as any).marketId === "string")
+      return (market as any).marketId;
+    if (typeof (market as any).marketId === "number")
+      return String((market as any).marketId);
+    if (typeof (market as any).marketId === "bigint")
+      return (market as any).marketId.toString();
+    return String(index); // fallback
+  })();
+
+  const marketIdNum = Number(marketIdStr);
+
   const { address } = useAccount();
   const [commentCount, setCommentCount] = useState<number>(0);
   const [options, setOptions] = useState<MarketOption[]>([]);
@@ -225,7 +238,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketOptionUserShares",
-    args: [BigInt(index), 0n, address as `0x${string}`],
+    args: [BigInt(marketIdNum), 0n, address as `0x${string}`],
     query: {
       enabled: !!address && (market.options?.length ?? 0) > 0,
       refetchInterval: 10000,
@@ -236,7 +249,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketOptionUserShares",
-    args: [BigInt(index), 1n, address as `0x${string}`],
+    args: [BigInt(marketIdNum), 1n, address as `0x${string}`],
     query: {
       enabled: !!address && (market.options?.length ?? 0) > 1,
       refetchInterval: 10000,
@@ -247,7 +260,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketOptionUserShares",
-    args: [BigInt(index), 2n, address as `0x${string}`],
+    args: [BigInt(marketIdNum), 2n, address as `0x${string}`],
     query: {
       enabled: !!address && (market.options?.length ?? 0) > 2,
       refetchInterval: 10000,
@@ -258,7 +271,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketOptionUserShares",
-    args: [BigInt(index), 3n, address as `0x${string}`],
+    args: [BigInt(marketIdNum), 3n, address as `0x${string}`],
     query: {
       enabled: !!address && (market.options?.length ?? 0) > 3,
       refetchInterval: 10000,
@@ -269,7 +282,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     address: V2contractAddress,
     abi: V2contractAbi,
     functionName: "getMarketOptionUserShares",
-    args: [BigInt(index), 4n, address as `0x${string}`],
+    args: [BigInt(marketIdNum), 4n, address as `0x${string}`],
     query: {
       enabled: !!address && (market.options?.length ?? 0) > 4,
       refetchInterval: 10000,
@@ -328,10 +341,10 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
         for (let i = 0; i < optionCount; i++) {
           try {
             // Static metadata from local API (cache-busted)
-            const apiRes = await fetch(
-              `/api/market-option?marketId=${index}&optionId=${i}&t=${Date.now()}`
+            const res = await fetch(
+              `/api/market-option?marketId=${marketIdStr}&optionId=${i}&t=${Date.now()}`
             );
-            const apiJson = apiRes.ok ? await apiRes.json() : null;
+            const apiJson = res.ok ? await res.json() : null;
 
             // Real-time price from contract (calculateCurrentPrice). Fallback to apiJson.currentPrice.
             let realTimePrice = 0n;
@@ -340,7 +353,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
                 address: PolicastViews,
                 abi: PolicastViewsAbi,
                 functionName: "calculateCurrentPrice",
-                args: [BigInt(index), BigInt(i)],
+                args: [BigInt(marketIdNum), BigInt(i)],
               });
               if (priceData !== undefined && priceData !== null) {
                 realTimePrice =
@@ -419,7 +432,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     const handler = (e: Event) => {
       try {
         const ev = e as CustomEvent;
-        if (ev?.detail?.marketId === index) {
+        if (ev?.detail?.marketId === marketIdNum) {
           fetchOptions();
         }
       } catch (err) {
@@ -444,7 +457,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     const fetchCommentCount = async () => {
       try {
         const response = await fetch(
-          `/api/comments?marketId=${index}&version=v2`
+          `/api/comments?marketId=${marketIdStr}&version=v2`
         );
         if (response.ok) {
           const data = await response.json();
@@ -528,7 +541,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
           {/* Free Market Claim Status */}
           <FreeMarketClaimStatus
-            marketId={index}
+            marketId={marketIdNum}
             className="mt-3"
             marketType={derivedMarketType}
           />
@@ -567,7 +580,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
   // Share handling
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "https://buster-mkt.vercel.app";
-  const marketPageUrl = `${appUrl}/market/${index}/details`;
+  const marketPageUrl = `${appUrl}/market/${marketIdStr}/details`;
 
   const handleShare = async () => {
     try {
@@ -586,7 +599,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
     typedUserShares && typedUserShares.some((shares) => shares > 0n);
 
   return (
-    <Card key={index} className="flex flex-col">
+    <Card key={marketIdStr} className="flex flex-col">
       <CardHeader>
         <div className="flex flex-col gap-2 mb-2">
           <div className="flex justify-between items-center">
@@ -629,7 +642,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
           !isExpired && (
             <div className="mb-4">
               <FreeTokenClaimButton
-                marketId={index}
+                marketId={marketIdNum}
                 marketTypeOverride={derivedMarketType}
                 showWhenDisconnected={true}
               />
@@ -648,7 +661,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
         {isExpired ? (
           isResolved ? (
             <MarketResolved
-              marketId={index}
+              marketId={marketIdNum}
               outcome={
                 typeof market.winningOptionId !== "undefined"
                   ? Number(market.winningOptionId) + 1
@@ -690,17 +703,17 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
 
             {/* Conditional Interface */}
             {activeInterface === "buy" ? (
-              <MarketV2BuyInterface marketId={index} market={market} />
+              <MarketV2BuyInterface marketId={marketIdNum} market={market} />
             ) : (
               <MarketV2SellInterface
-                marketId={index}
+                marketId={marketIdNum}
                 market={market}
                 userShares={userShares}
                 onSellComplete={() => {
                   // Trigger event to refresh market data
                   window.dispatchEvent(
                     new CustomEvent("market-updated", {
-                      detail: { marketId: index },
+                      detail: { marketId: marketIdNum },
                     })
                   );
                   // Refetch user shares
@@ -717,7 +730,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
                   userShares={userShares || []}
                   options={displayOptions}
                 />
-                <Link href={`/market/${index}/details`}>
+                <Link href={`/market/${marketIdStr}/details`}>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -742,7 +755,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               className="flex flex-col items-center justify-center h-auto p-2 w-full"
               asChild
             >
-              <Link href={`/market/${index}/details#comments`}>
+              <Link href={`/market/${marketIdStr}/details#comments`}>
                 <div className="flex items-center justify-center size-9 rounded-full bg-slate-100 dark:bg-slate-800/50 mb-1">
                   <MessageCircle className="h-4 w-4 text-slate-600 dark:text-slate-400" />
                 </div>
@@ -781,7 +794,7 @@ export function MarketV2Card({ index, market }: MarketV2CardProps) {
               className="flex flex-col items-center justify-center h-auto p-2 w-full"
               asChild
             >
-              <Link href={`/market/${index}/details`}>
+              <Link href={`/market/${marketIdStr}/details`}>
                 <div className="flex items-center justify-center size-9 rounded-full bg-slate-100 dark:bg-slate-800/50 mb-1">
                   <FontAwesomeIcon
                     icon={faUpRightAndDownLeftFromCenter}
