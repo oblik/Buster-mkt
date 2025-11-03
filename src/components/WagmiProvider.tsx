@@ -39,7 +39,7 @@ export const config = wagmiAdapter.wagmiConfig;
 const metadata = {
   name: "Policast",
   description: "Policast - Social podcasting on Farcaster",
-  url: "https://buster-mkt.vercel.app", // origin must match your domain & subdomain
+  url: "", // origin must match your domain & subdomain
   icons: ["https://buster-mkt.vercel.app/icon.png"],
 };
 
