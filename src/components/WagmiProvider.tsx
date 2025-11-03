@@ -1,16 +1,16 @@
 "use client";
 
-import { WagmiProvider } from "wagmi";
 import { cookieStorage, createStorage } from "@wagmi/core";
 import { base } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
-import { coinbaseWallet } from "wagmi/connectors";
 import { useEffect, useState, createContext, useContext } from "react";
 import { useConnect, useAccount, useDisconnect } from "wagmi";
 import React from "react";
 import { createAppKit, useAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
+import { WagmiProvider } from "wagmi";
+import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
+import { coinbaseWallet } from "wagmi/connectors";
 
 // Get projectId from https://dashboard.reown.com
 export const projectId =
@@ -23,7 +23,7 @@ if (!projectId) {
 
 export const networks = [base];
 
-// Set up the Wagmi Adapter (Config)
+// Set up the Wagmi Adapter (Config) with additional connectors for Farcaster
 export const wagmiAdapter = new WagmiAdapter({
   storage: createStorage({
     storage: cookieStorage,
@@ -31,6 +31,11 @@ export const wagmiAdapter = new WagmiAdapter({
   ssr: true,
   projectId,
   networks,
+  connectors: [
+    // Add Farcaster miniapp connector
+    miniAppConnector(),
+    // Coinbase Wallet is included by default in AppKit
+  ],
 });
 
 export const config = wagmiAdapter.wagmiConfig;
@@ -39,7 +44,7 @@ export const config = wagmiAdapter.wagmiConfig;
 const metadata = {
   name: "Policast",
   description: "Policast - Social podcasting on Farcaster",
-  url: "", // origin must match your domain & subdomain
+  url: "https://buster-mkt.vercel.app", // origin must match your domain & subdomain
   icons: ["https://buster-mkt.vercel.app/icon.png"],
 };
 
@@ -133,31 +138,6 @@ function useCoinbaseWalletAutoConnect() {
   return isCoinbaseWallet;
 }
 
-// Create connectors with proper error handling
-function createConnectors() {
-  const connectors = [];
-
-  try {
-    connectors.push(miniAppConnector());
-  } catch (error) {
-    console.warn("Failed to initialize miniApp connector:", error);
-  }
-
-  try {
-    connectors.push(
-      coinbaseWallet({
-        appName: "Policast",
-        appLogoUrl: "https://buster-mkt.vercel.app/icon.png",
-        preference: "all",
-      })
-    );
-  } catch (error) {
-    console.warn("Failed to initialize Coinbase Wallet connector:", error);
-  }
-
-  return connectors;
-}
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -183,12 +163,16 @@ function WalletProvider({ children }: { children: React.ReactNode }) {
   // Auto-connect logic
   useCoinbaseWalletAutoConnect();
 
-  // Determine primary connector
-  const primaryConnector =
-    wagmiConnectors.find((c) => c.id === "miniAppConnector") ||
-    wagmiConnectors.find((c) => c.id === "coinbaseWalletSDK") ||
-    wagmiConnectors.find((c) => c.id === "metaMask") ||
-    (wagmiConnectors.length > 0 ? wagmiConnectors[0] : undefined);
+  // Determine primary connector with better fallback logic
+  const primaryConnector = React.useMemo(() => {
+    return (
+      wagmiConnectors.find((c) => c.id === "miniAppConnector") ||
+      wagmiConnectors.find((c) => c.id.includes("coinbase")) ||
+      wagmiConnectors.find((c) => c.id === "walletConnect") ||
+      wagmiConnectors[0] ||
+      null
+    );
+  }, [wagmiConnectors]);
 
   const walletValue: WalletContextType = {
     connect: (connectorId?: string) => {
@@ -200,8 +184,10 @@ function WalletProvider({ children }: { children: React.ReactNode }) {
           } else {
             console.warn(`Connector with id "${connectorId}" not found`);
           }
+        } else if (primaryConnector) {
+          wagmiConnect({ connector: primaryConnector });
         } else {
-          // Use AppKit modal instead of direct connector
+          // Use AppKit modal as fallback
           open();
         }
       } catch (error) {
